@@ -1,0 +1,14 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Прозрачный фон по умолчанию -->
+  <g transform="translate(15, 20)">
+    <!-- Самый нижний лист -->
+    <rect x="50" y="60" width="130" height="160" rx="10" fill="#93C5FD" transform="rotate(-15 115 140)" />
+    <!-- Средний лист -->
+    <rect x="50" y="50" width="130" height="160" rx="10" fill="#60A5FA" transform="rotate(-7 115 130)" />
+    <!-- Верхний лист -->
+    <rect x="50" y="40" width="130" height="160" rx="10" fill="#2563EB" />
+    
+    <!-- Галочка -->
+    <path d="M 85 125 L 105 145 L 145 95" fill="none" stroke="white" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+</svg>
