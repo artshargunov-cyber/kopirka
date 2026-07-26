@@ -1,7 +1,8 @@
 import fitz  # PyMuPDF
-from PIL import Image
-import math
+import fitz
 import os
+from PIL import Image
+from utils import get_resource_path
 
 class PDFProcessor:
     def __init__(self):
@@ -91,7 +92,7 @@ class PDFProcessor:
     def _draw_text_without_bg(self, page, text, rect, fontsize):
         """Рисует текст с использованием шрифта Roboto, поддерживающего кириллицу."""
         # Подключаем шрифт Roboto из папки assets
-        font_path = os.path.join(os.path.dirname(__file__), "assets", "Roboto-Regular.ttf")
+        font_path = get_resource_path(os.path.join("assets", "Roboto-Regular.ttf"))
         with open(font_path, "rb") as f:
             font_buf = f.read()
         page.insert_font(fontname="F0", fontbuffer=font_buf)
