@@ -3,9 +3,9 @@ import math
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel, 
     QSlider, QScrollArea, QCheckBox, QFileDialog, QMessageBox, QFrame, QSizePolicy,
-    QDialog, QTextEdit, QApplication
+    QDialog, QTextEdit, QApplication, QComboBox
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QMimeData
 from crop_widget import ImageCropDialog
 from PyQt6.QtGui import QPixmap, QFont, QImage
 from io import BytesIO
@@ -47,10 +47,14 @@ class MainWindow(QMainWindow):
         self.resize(1000, 700)
         self.setMinimumSize(800, 600)
         
+        # Включаем drag-and-drop
+        self.setAcceptDrops(True)
+        
         self.roster_manager = RosterManager()
         self.pdf_processor = PDFProcessor()
         
         self.scale_value = 50
+        self.orientation_mode = "auto"  # "auto", "portrait", "landscape"
         
         self.setup_ui()
         self.apply_stylesheet()
@@ -81,9 +85,19 @@ class MainWindow(QMainWindow):
         self.btn_load_file.clicked.connect(self.load_template_file)
         self.left_layout.addWidget(self.btn_load_file)
 
-        self.file_status_label = QLabel("Файл не выбран")
+        self.file_status_label = QLabel("Файл не выбран (или перетащите сюда)")
         self.file_status_label.setObjectName("StatusLabel")
+        self.file_status_label.setWordWrap(True)
         self.left_layout.addWidget(self.file_status_label)
+
+        # Переключатель ориентации
+        self.orientation_label = QLabel("Ориентация листа:")
+        self.left_layout.addWidget(self.orientation_label)
+        
+        self.orientation_combo = QComboBox()
+        self.orientation_combo.addItems(["Автоматически", "Книжная (портрет)", "Альбомная (ландшафт)"])
+        self.orientation_combo.currentIndexChanged.connect(self.on_orientation_change)
+        self.left_layout.addWidget(self.orientation_combo)
 
         self.btn_edit_roster = QPushButton("Изменить список класса")
         self.btn_edit_roster.setObjectName("SecondaryButton")
@@ -104,6 +118,12 @@ class MainWindow(QMainWindow):
         self.sel_layout.addWidget(self.btn_desel_all)
         
         self.left_layout.addWidget(self.sel_frame)
+
+        # Кнопка добавления пустого ученика
+        self.btn_add_empty = QPushButton("+ Добавить без имени")
+        self.btn_add_empty.setObjectName("SecondaryButton")
+        self.btn_add_empty.clicked.connect(self.add_empty_student)
+        self.left_layout.addWidget(self.btn_add_empty)
 
         # Список учеников
         self.scroll_area = QScrollArea()
@@ -266,35 +286,82 @@ class MainWindow(QMainWindow):
             "Изображения и PDF (*.pdf *.png *.jpg *.jpeg);;Все файлы (*.*)"
         )
         if filepath:
-            success, msg = self.pdf_processor.load_template(filepath)
-            if success:
-                # Если это картинка, предлагаем обрезать
-                ext = os.path.splitext(filepath)[1].lower()
-                if ext in ['.png', '.jpg', '.jpeg']:
-                    from PIL import Image
-                    import io
-                    # Получаем текущий шаблон из pdf_processor
-                    pix = self.pdf_processor.template_pix
-                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                    
-                    img_bytes = io.BytesIO()
-                    img.save(img_bytes, format='PNG')
-                    
-                    qpixmap = QPixmap()
-                    qpixmap.loadFromData(img_bytes.getvalue())
-                    
-                    dialog = ImageCropDialog(self, qpixmap)
-                    if dialog.exec():
-                        crop_rect = dialog.get_crop_rect()
-                        if crop_rect:
-                            self.pdf_processor.crop_template(crop_rect)
+            self._process_file(filepath)
 
-                filename = os.path.basename(filepath)
-                self.file_status_label.setText(filename)
-                self.file_status_label.setStyleSheet("color: #10B981;") # Зеленый
-                self.update_preview()
-            else:
-                QMessageBox.critical(self, "Ошибка", msg)
+    def _process_file(self, filepath):
+        """Общий метод загрузки и обработки файла (вызывается и из диалога, и из drag-and-drop)."""
+        success, msg = self.pdf_processor.load_template(filepath)
+        if success:
+            # Применяем выбранную ориентацию
+            self._apply_orientation()
+            
+            # Предлагаем обрезку для любого загруженного файла (картинки и PDF)
+            from PIL import Image
+            import io
+            pix = self.pdf_processor.template_pix
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            
+            img_bytes = io.BytesIO()
+            img.save(img_bytes, format='PNG')
+            
+            qpixmap = QPixmap()
+            qpixmap.loadFromData(img_bytes.getvalue())
+            
+            dialog = ImageCropDialog(self, qpixmap)
+            if dialog.exec():
+                crop_rect = dialog.get_crop_rect()
+                if crop_rect:
+                    self.pdf_processor.crop_template(crop_rect)
+                    # После обрезки снова применяем ориентацию
+                    self._apply_orientation()
+
+            filename = os.path.basename(filepath)
+            self.file_status_label.setText(filename)
+            self.file_status_label.setStyleSheet("color: #10B981;")  # Зеленый
+            self.update_preview()
+        else:
+            QMessageBox.critical(self, "Ошибка", msg)
+
+    # --- Drag-and-drop ---
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        if urls:
+            filepath = urls[0].toLocalFile()
+            if filepath:
+                self._process_file(filepath)
+
+    # --- Ориентация ---
+    def on_orientation_change(self, index):
+        modes = ["auto", "portrait", "landscape"]
+        self.orientation_mode = modes[index]
+        self._apply_orientation()
+        self.update_preview()
+
+    def _apply_orientation(self):
+        """Устанавливает ориентацию страницы по выбору пользователя."""
+        if self.orientation_mode == "auto":
+            self.pdf_processor._update_page_orientation()
+        elif self.orientation_mode == "portrait":
+            self.pdf_processor.A4_WIDTH = self.pdf_processor.A4_PORTRAIT_W
+            self.pdf_processor.A4_HEIGHT = self.pdf_processor.A4_PORTRAIT_H
+            self.pdf_processor.USABLE_WIDTH = self.pdf_processor.A4_WIDTH - 2 * self.pdf_processor.MARGIN
+            self.pdf_processor.USABLE_HEIGHT = self.pdf_processor.A4_HEIGHT - 2 * self.pdf_processor.MARGIN
+        elif self.orientation_mode == "landscape":
+            self.pdf_processor.A4_WIDTH = self.pdf_processor.A4_PORTRAIT_H
+            self.pdf_processor.A4_HEIGHT = self.pdf_processor.A4_PORTRAIT_W
+            self.pdf_processor.USABLE_WIDTH = self.pdf_processor.A4_WIDTH - 2 * self.pdf_processor.MARGIN
+            self.pdf_processor.USABLE_HEIGHT = self.pdf_processor.A4_HEIGHT - 2 * self.pdf_processor.MARGIN
+
+    # --- Пустой ученик ---
+    def add_empty_student(self):
+        """Добавляет ученика с пустым именем (пустое поле для подписи от руки)."""
+        self.roster_manager.add_empty_student()
+        self.refresh_student_list()
+        self.update_stats()
 
     def edit_roster(self):
         dialog = RosterEditDialog(self, self.roster_manager.get_all_students())
@@ -319,7 +386,8 @@ class MainWindow(QMainWindow):
         # Создание чекбоксов
         students = self.roster_manager.get_all_students()
         for idx, student in enumerate(students):
-            cb = QCheckBox(student["name"])
+            display_name = student["name"] if student["name"] else "(без имени)"
+            cb = QCheckBox(display_name)
             cb.setChecked(student["selected"])
             
             # Подключаем сигнал через лямбду, захватывая текущий индекс

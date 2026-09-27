@@ -85,3 +85,8 @@ class RosterManager:
         for s in self.students:
             s["selected"] = selected
         self.save_cache()
+
+    def add_empty_student(self):
+        """Добавляет ученика с пустым именем (для подписи от руки)."""
+        self.students.append({"name": "", "selected": True})
+        self.save_cache()
