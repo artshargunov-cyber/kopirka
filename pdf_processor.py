@@ -6,7 +6,7 @@ from utils import get_resource_path
 
 class PDFProcessor:
     def __init__(self):
-        self.MARGIN = 20
+        self.MARGIN = 10
         self.A4_PORTRAIT_W = 595.276
         self.A4_PORTRAIT_H = 841.890
         
@@ -71,8 +71,8 @@ class PDFProcessor:
             mid = (low + high) / 2.0
             sw = self.template_width * mid
             sh = self.template_height * mid
-            fontsize = max(8.0, min(14.0, sw / 25.0))
-            hh = 10 + fontsize * 1.5 + 5
+            fontsize = max(8.0, min(12.0, sw / 30.0))
+            hh = 5 + fontsize * 1.2 + 2
             if sw <= cell_w and (sh + hh) <= cell_h:
                 best_s = mid
                 low = mid
@@ -133,8 +133,8 @@ class PDFProcessor:
         page.insert_font(fontname="F0", fontbuffer=font_buf)
         
         # Вставляем текст
-        page.insert_text((rect.x0 + 5, rect.y0 + 5 + fontsize), text, fontsize=fontsize, fontname="F0", color=(0, 0, 0))
-        return rect.y0 + 5 + fontsize * 1.5 # Возвращаем Y для следующего блока
+        page.insert_text((rect.x0 + 2, rect.y0 + 5 + fontsize), text, fontsize=fontsize, fontname="F0", color=(0, 0, 0))
+        return rect.y0 + 5 + fontsize * 1.2 # Возвращаем Y для следующего блока
 
     def _draw_cut_lines(self, page, cols, rows, scaled_width, scaled_height):
         """Рисует линии отреза (серые штрихпунктирные) между рядами и колонками."""
@@ -180,12 +180,12 @@ class PDFProcessor:
                 cell_rect = fitz.Rect(x0, y0, x0 + cell_w, y0 + cell_h)
                 
                 # Вставляем тестовый текст "Иванов Иван" и "Оценка: ____" в одну строку
-                fontsize = max(8, min(14, image_scaled_width / 25))
+                fontsize = max(8.0, min(12.0, image_scaled_width / 30.0))
                 header_text = "Ученик: Иванов Иван         Оценка: _______"
                 y_img = self._draw_text_without_bg(page, header_text, cell_rect, fontsize)
                 
                 # Вставляем изображение раздатки НИЖЕ текста, строго упираясь в нижнюю границу ячейки
-                img_rect = fitz.Rect(x0, y_img + 5, x0 + image_scaled_width, y0 + cell_h)
+                img_rect = fitz.Rect(x0, y_img + 2, x0 + image_scaled_width, y0 + cell_h)
                 page.insert_image(img_rect, pixmap=self.template_pix)
 
         # Рисуем линии реза
@@ -241,14 +241,14 @@ class PDFProcessor:
                     y0 = self.MARGIN + r * cell_h
                     cell_rect = fitz.Rect(x0, y0, x0 + cell_w, y0 + cell_h)
                     
-                    fontsize = max(8, min(14, image_scaled_width / 25))
+                    fontsize = max(8.0, min(12.0, image_scaled_width / 30.0))
                     name_part = f"Ученик: {student_name}" if student_name else "Фамилия, Имя: ____________"
                     header_text = f"{name_part}         Оценка: _______"
                     
                     y_img = self._draw_text_without_bg(page, header_text, cell_rect, fontsize)
                     
                     # Жестко ограничиваем низ картинки границей ячейки
-                    img_rect = fitz.Rect(x0, y_img + 5, x0 + image_scaled_width, y0 + cell_h)
+                    img_rect = fitz.Rect(x0, y_img + 2, x0 + image_scaled_width, y0 + cell_h)
                     page.insert_image(img_rect, pixmap=self.template_pix)
                     
                     student_idx += 1

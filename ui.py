@@ -415,6 +415,11 @@ class MainWindow(QMainWindow):
             pixmap = QPixmap()
             pixmap.loadFromData(img_bytes.getvalue())
             
+            if pixmap.width() > pixmap.height():
+                self.preview_label.setFixedSize(594, 420)
+            else:
+                self.preview_label.setFixedSize(420, 594)
+            
             # Масштабируем до размеров превью контейнера
             pixmap_scaled = pixmap.scaled(
                 self.preview_label.size(), 
