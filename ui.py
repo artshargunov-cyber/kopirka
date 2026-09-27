@@ -3,15 +3,16 @@ import math
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel, 
     QSlider, QScrollArea, QCheckBox, QFileDialog, QMessageBox, QFrame, QSizePolicy,
-    QDialog, QTextEdit, QApplication, QComboBox
+    QDialog, QTextEdit, QApplication, QComboBox, QSpinBox
 )
 from PyQt6.QtCore import Qt, QSize, QMimeData
 from crop_widget import ImageCropDialog
-from PyQt6.QtGui import QPixmap, QFont, QImage
+from PyQt6.QtGui import QPixmap, QFont, QImage, QImageReader, QIcon
 from io import BytesIO
 
 from roster_manager import RosterManager
 from pdf_processor import PDFProcessor
+from utils import get_resource_path
 
 class RosterEditDialog(QDialog):
     def __init__(self, parent, current_students):
@@ -47,14 +48,18 @@ class MainWindow(QMainWindow):
         self.resize(1000, 700)
         self.setMinimumSize(800, 600)
         
+        # Устанавливаем иконку приложения
+        icon_path = get_resource_path(os.path.join("assets", "icon.svg"))
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+            
         # Включаем drag-and-drop
         self.setAcceptDrops(True)
         
         self.roster_manager = RosterManager()
         self.pdf_processor = PDFProcessor()
         
-        self.scale_value = 50
-        self.orientation_mode = "auto"  # "auto", "portrait", "landscape"
+        self.copies_per_page = 4
         
         self.setup_ui()
         self.apply_stylesheet()
@@ -89,15 +94,6 @@ class MainWindow(QMainWindow):
         self.file_status_label.setObjectName("StatusLabel")
         self.file_status_label.setWordWrap(True)
         self.left_layout.addWidget(self.file_status_label)
-
-        # Переключатель ориентации
-        self.orientation_label = QLabel("Ориентация листа:")
-        self.left_layout.addWidget(self.orientation_label)
-        
-        self.orientation_combo = QComboBox()
-        self.orientation_combo.addItems(["Автоматически", "Книжная (портрет)", "Альбомная (ландшафт)"])
-        self.orientation_combo.currentIndexChanged.connect(self.on_orientation_change)
-        self.left_layout.addWidget(self.orientation_combo)
 
         self.btn_edit_roster = QPushButton("Изменить список класса")
         self.btn_edit_roster.setObjectName("SecondaryButton")
@@ -137,15 +133,15 @@ class MainWindow(QMainWindow):
         
         self.student_checkboxes = []
 
-        # Ползунок масштаба
-        self.scale_label = QLabel(f"Масштаб раздатки: {self.scale_value}%")
-        self.left_layout.addWidget(self.scale_label)
+        # Выбор количества копий на листе
+        self.copies_label = QLabel("Количество копий на листе А4:")
+        self.left_layout.addWidget(self.copies_label)
         
-        self.scale_slider = QSlider(Qt.Orientation.Horizontal)
-        self.scale_slider.setRange(10, 100)
-        self.scale_slider.setValue(self.scale_value)
-        self.scale_slider.valueChanged.connect(self.on_scale_change)
-        self.left_layout.addWidget(self.scale_slider)
+        self.copies_spinbox = QSpinBox()
+        self.copies_spinbox.setRange(1, 100)
+        self.copies_spinbox.setValue(self.copies_per_page)
+        self.copies_spinbox.valueChanged.connect(self.on_copies_change)
+        self.left_layout.addWidget(self.copies_spinbox)
 
         # Инфо панели
         self.stats_frame = QFrame()
@@ -292,9 +288,6 @@ class MainWindow(QMainWindow):
         """Общий метод загрузки и обработки файла (вызывается и из диалога, и из drag-and-drop)."""
         success, msg = self.pdf_processor.load_template(filepath)
         if success:
-            # Применяем выбранную ориентацию
-            self._apply_orientation()
-            
             # Предлагаем обрезку для любого загруженного файла (картинки и PDF)
             from PIL import Image
             import io
@@ -305,15 +298,15 @@ class MainWindow(QMainWindow):
             img.save(img_bytes, format='PNG')
             
             qpixmap = QPixmap()
+            QImageReader.setAllocationLimit(1024) # 1024 MB limit
             qpixmap.loadFromData(img_bytes.getvalue())
             
-            dialog = ImageCropDialog(self, qpixmap)
-            if dialog.exec():
-                crop_rect = dialog.get_crop_rect()
-                if crop_rect:
-                    self.pdf_processor.crop_template(crop_rect)
-                    # После обрезки снова применяем ориентацию
-                    self._apply_orientation()
+            if not qpixmap.isNull():
+                dialog = ImageCropDialog(self, qpixmap)
+                if dialog.exec():
+                    crop_rect = dialog.get_crop_rect()
+                    if crop_rect:
+                        self.pdf_processor.crop_template(crop_rect)
 
             filename = os.path.basename(filepath)
             self.file_status_label.setText(filename)
@@ -333,28 +326,6 @@ class MainWindow(QMainWindow):
             filepath = urls[0].toLocalFile()
             if filepath:
                 self._process_file(filepath)
-
-    # --- Ориентация ---
-    def on_orientation_change(self, index):
-        modes = ["auto", "portrait", "landscape"]
-        self.orientation_mode = modes[index]
-        self._apply_orientation()
-        self.update_preview()
-
-    def _apply_orientation(self):
-        """Устанавливает ориентацию страницы по выбору пользователя."""
-        if self.orientation_mode == "auto":
-            self.pdf_processor._update_page_orientation()
-        elif self.orientation_mode == "portrait":
-            self.pdf_processor.A4_WIDTH = self.pdf_processor.A4_PORTRAIT_W
-            self.pdf_processor.A4_HEIGHT = self.pdf_processor.A4_PORTRAIT_H
-            self.pdf_processor.USABLE_WIDTH = self.pdf_processor.A4_WIDTH - 2 * self.pdf_processor.MARGIN
-            self.pdf_processor.USABLE_HEIGHT = self.pdf_processor.A4_HEIGHT - 2 * self.pdf_processor.MARGIN
-        elif self.orientation_mode == "landscape":
-            self.pdf_processor.A4_WIDTH = self.pdf_processor.A4_PORTRAIT_H
-            self.pdf_processor.A4_HEIGHT = self.pdf_processor.A4_PORTRAIT_W
-            self.pdf_processor.USABLE_WIDTH = self.pdf_processor.A4_WIDTH - 2 * self.pdf_processor.MARGIN
-            self.pdf_processor.USABLE_HEIGHT = self.pdf_processor.A4_HEIGHT - 2 * self.pdf_processor.MARGIN
 
     # --- Пустой ученик ---
     def add_empty_student(self):
@@ -409,9 +380,8 @@ class MainWindow(QMainWindow):
             cb.blockSignals(False)
         self.update_stats()
 
-    def on_scale_change(self, value):
-        self.scale_value = value
-        self.scale_label.setText(f"Масштаб раздатки: {self.scale_value}%")
+    def on_copies_change(self, value):
+        self.copies_per_page = value
         self.update_preview()
 
     def update_stats(self):
@@ -423,11 +393,12 @@ class MainWindow(QMainWindow):
         else:
             total_needed = count
 
-        _, _, copies_per_page, _, _ = self.pdf_processor.calculate_layout(self.scale_value)
+        layout_res = self.pdf_processor.calculate_layout(self.copies_per_page)
+        copies_per_page_res = layout_res[2] if layout_res[0] > 0 else 0
         
         pages = 0
-        if copies_per_page > 0:
-            pages = math.ceil(total_needed / copies_per_page) if total_needed > 0 else 0
+        if copies_per_page_res > 0:
+            pages = math.ceil(total_needed / copies_per_page_res) if total_needed > 0 else 0
             if not self.roster_manager.get_all_students() and pages == 0:
                  pages = 1
 
@@ -435,7 +406,7 @@ class MainWindow(QMainWindow):
         self.lbl_pages_needed.setText(f"Всего потребуется листов А4: {pages}")
 
     def update_preview(self):
-        img, copies_per_page = self.pdf_processor.generate_preview(self.scale_value)
+        img, copies_per_page = self.pdf_processor.generate_preview(self.copies_per_page)
         
         if img:
             # Конвертация PIL Image в QPixmap
@@ -477,7 +448,7 @@ class MainWindow(QMainWindow):
             self.btn_save.setText("Сохранение...")
             QApplication.processEvents() # Обновляем UI
             
-            success, msg = self.pdf_processor.generate_pdf(self.scale_value, selected_students, filepath)
+            success, msg = self.pdf_processor.generate_pdf(self.copies_per_page, selected_students, filepath)
             
             self.btn_save.setEnabled(True)
             self.btn_save.setText("Сохранить для печати")

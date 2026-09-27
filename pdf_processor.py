@@ -1,6 +1,6 @@
-import fitz  # PyMuPDF
 import fitz
 import os
+import math
 from PIL import Image
 from utils import get_resource_path
 
@@ -62,32 +62,67 @@ class PDFProcessor:
         except Exception as e:
             return False, f"Ошибка загрузки файла: {e}"
 
-    def calculate_layout(self, scale_percent):
+    def _get_max_scale(self, cell_w, cell_h):
+        # Бинарный поиск максимального масштаба, при котором картинка с текстом влезает в ячейку
+        low = 0.01
+        high = 10.0
+        best_s = 0
+        for _ in range(50):
+            mid = (low + high) / 2.0
+            sw = self.template_width * mid
+            sh = self.template_height * mid
+            fontsize = max(8.0, min(14.0, sw / 25.0))
+            hh = 10 + fontsize * 1.5 + 5
+            if sw <= cell_w and (sh + hh) <= cell_h:
+                best_s = mid
+                low = mid
+            else:
+                high = mid
+        return best_s
+
+    def calculate_layout(self, num_copies):
         """
-        Рассчитывает количество копий на листе А4 и их размеры при заданном масштабе (от 10 до 100).
+        Находит оптимальную сетку и ориентацию листа, чтобы разместить num_copies копий максимально крупно.
+        Возвращает: (cols, rows, num_copies, cell_w, cell_h, scale_factor)
         """
         if not self.template_pix:
-            return 0, 0, 0, 0, 0
+            return 0, 0, 0, 0, 0, 0
             
-        scale_factor = scale_percent / 100.0
-        scaled_width = self.template_width * scale_factor
-        scaled_height = self.template_height * scale_factor
+        best_area = 0
+        best_config = None
         
-        # Оцениваем место под текст (Имя + Оценка + отступы) - теперь в одну строку
-        fontsize = max(8, min(14, scaled_width / 25))
-        header_height = 10 + fontsize * 1.5 + 5 # Точная сумма всех вертикальных отступов текста
-        
-        total_width = scaled_width
-        total_height = scaled_height + header_height
-
-        # Защита от деления на ноль при очень маленьком масштабе
-        if total_width < 1 or total_height < 1:
-            return 0, 0, 0, total_width, total_height
-
-        cols = int(self.USABLE_WIDTH // total_width)
-        rows = int(self.USABLE_HEIGHT // total_height)
-        
-        return cols, rows, cols * rows, total_width, total_height
+        for orientation in ["portrait", "landscape"]:
+            w = self.A4_PORTRAIT_W - 2 * self.MARGIN
+            h = self.A4_PORTRAIT_H - 2 * self.MARGIN
+            if orientation == "landscape":
+                w, h = h, w
+                
+            for cols in range(1, num_copies + 1):
+                rows = math.ceil(num_copies / cols)
+                cell_w = w / cols
+                cell_h = h / rows
+                
+                s = self._get_max_scale(cell_w, cell_h)
+                if s > 0:
+                    sw = self.template_width * s
+                    sh = self.template_height * s
+                    area = sw * sh
+                    if area > best_area:
+                        best_area = area
+                        best_config = (cols, rows, num_copies, cell_w, cell_h, s, orientation)
+                        
+        if best_config:
+            cols, rows, copies, cell_w, cell_h, s, orientation = best_config
+            if orientation == "portrait":
+                self.A4_WIDTH = self.A4_PORTRAIT_W
+                self.A4_HEIGHT = self.A4_PORTRAIT_H
+            else:
+                self.A4_WIDTH = self.A4_PORTRAIT_H
+                self.A4_HEIGHT = self.A4_PORTRAIT_W
+            self.USABLE_WIDTH = self.A4_WIDTH - 2 * self.MARGIN
+            self.USABLE_HEIGHT = self.A4_HEIGHT - 2 * self.MARGIN
+            return cols, rows, copies, cell_w, cell_h, s
+        return 0, 0, 0, 0, 0, 0
 
     def _draw_text_without_bg(self, page, text, rect, fontsize):
         """Рисует текст с использованием шрифта Roboto, поддерживающего кириллицу."""
@@ -118,29 +153,31 @@ class PDFProcessor:
         shape.finish(color=(0.7, 0.7, 0.7), dashes="[3 3] 0", width=0.5)
         shape.commit()
 
-    def generate_preview(self, scale_percent):
+    def generate_preview(self, num_copies):
         """
         Генерирует изображение (PIL Image) одной страницы A4 для предпросмотра.
         """
         if not self.template_pix:
             return None, 0
 
-        cols, rows, copies_per_page, sw, sh = self.calculate_layout(scale_percent)
+        layout_res = self.calculate_layout(num_copies)
+        if layout_res[0] == 0:
+            return None, 0
+        cols, rows, copies_per_page, cell_w, cell_h, scale_factor = layout_res
         
         # Создаем временный пустой PDF документ для страницы
         doc = fitz.open()
         page = doc.new_page(width=self.A4_WIDTH, height=self.A4_HEIGHT)
         
-        scale_factor = scale_percent / 100.0
         image_scaled_width = self.template_width * scale_factor
         image_scaled_height = self.template_height * scale_factor
 
         # Рендерим тестовые копии
         for r in range(rows):
             for c in range(cols):
-                x0 = self.MARGIN + c * sw
-                y0 = self.MARGIN + r * sh
-                cell_rect = fitz.Rect(x0, y0, x0 + sw, y0 + sh)
+                x0 = self.MARGIN + c * cell_w
+                y0 = self.MARGIN + r * cell_h
+                cell_rect = fitz.Rect(x0, y0, x0 + cell_w, y0 + cell_h)
                 
                 # Вставляем тестовый текст "Иванов Иван" и "Оценка: ____" в одну строку
                 fontsize = max(8, min(14, image_scaled_width / 25))
@@ -148,11 +185,11 @@ class PDFProcessor:
                 y_img = self._draw_text_without_bg(page, header_text, cell_rect, fontsize)
                 
                 # Вставляем изображение раздатки НИЖЕ текста, строго упираясь в нижнюю границу ячейки
-                img_rect = fitz.Rect(x0, y_img + 5, x0 + image_scaled_width, y0 + sh)
+                img_rect = fitz.Rect(x0, y_img + 5, x0 + image_scaled_width, y0 + cell_h)
                 page.insert_image(img_rect, pixmap=self.template_pix)
 
         # Рисуем линии реза
-        self._draw_cut_lines(page, cols, rows, sw, sh)
+        self._draw_cut_lines(page, cols, rows, cell_w, cell_h)
 
         # Конвертируем страницу в PIL Image
         # Для превью можно использовать меньшее разрешение (matrix)
@@ -162,7 +199,7 @@ class PDFProcessor:
         doc.close()
         return img, copies_per_page
 
-    def generate_pdf(self, scale_percent, students, output_path):
+    def generate_pdf(self, num_copies, students, output_path):
         """
         Генерирует финальный многостраничный PDF для всех учеников.
         Если список пуст, делает пустую строку вместо имени.
@@ -170,10 +207,13 @@ class PDFProcessor:
         if not self.template_pix:
             return False, "Не загружен файл раздатки."
 
-        cols, rows, copies_per_page, sw, sh = self.calculate_layout(scale_percent)
+        layout_res = self.calculate_layout(num_copies)
+        if layout_res[0] == 0:
+            return False, "Невозможно разместить ни одной копии на листе."
+        cols, rows, copies_per_page, cell_w, cell_h, scale_factor = layout_res
         
         if copies_per_page == 0:
-            return False, "Масштаб слишком велик, ни одна копия не помещается на лист."
+            return False, "Слишком большое количество копий."
 
         if not students:
             # Fallback, если список не загружен/все сняты
@@ -181,7 +221,6 @@ class PDFProcessor:
 
         doc = fitz.open()
         
-        scale_factor = scale_percent / 100.0
         image_scaled_width = self.template_width * scale_factor
         image_scaled_height = self.template_height * scale_factor
 
@@ -198,9 +237,9 @@ class PDFProcessor:
                         
                     student_name = students[student_idx]
                     
-                    x0 = self.MARGIN + c * sw
-                    y0 = self.MARGIN + r * sh
-                    cell_rect = fitz.Rect(x0, y0, x0 + sw, y0 + sh)
+                    x0 = self.MARGIN + c * cell_w
+                    y0 = self.MARGIN + r * cell_h
+                    cell_rect = fitz.Rect(x0, y0, x0 + cell_w, y0 + cell_h)
                     
                     fontsize = max(8, min(14, image_scaled_width / 25))
                     name_part = f"Ученик: {student_name}" if student_name else "Фамилия, Имя: ____________"
@@ -209,12 +248,12 @@ class PDFProcessor:
                     y_img = self._draw_text_without_bg(page, header_text, cell_rect, fontsize)
                     
                     # Жестко ограничиваем низ картинки границей ячейки
-                    img_rect = fitz.Rect(x0, y_img + 5, x0 + image_scaled_width, y0 + sh)
+                    img_rect = fitz.Rect(x0, y_img + 5, x0 + image_scaled_width, y0 + cell_h)
                     page.insert_image(img_rect, pixmap=self.template_pix)
                     
                     student_idx += 1
 
-            self._draw_cut_lines(page, cols, rows, sw, sh)
+            self._draw_cut_lines(page, cols, rows, cell_w, cell_h)
 
         try:
             doc.save(output_path)
