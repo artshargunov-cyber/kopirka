@@ -62,7 +62,7 @@ class PDFProcessor:
         except Exception as e:
             return False, f"Ошибка загрузки файла: {e}"
 
-    def _get_max_scale(self, cell_w, cell_h):
+    def _get_max_scale(self, cell_w, cell_h, hide_header=False):
         # Бинарный поиск максимального масштаба, при котором картинка с текстом влезает в ячейку
         low = 0.01
         high = 10.0
@@ -71,8 +71,10 @@ class PDFProcessor:
             mid = (low + high) / 2.0
             sw = self.template_width * mid
             sh = self.template_height * mid
-            fontsize = max(8.0, min(12.0, sw / 30.0))
-            hh = 5 + fontsize * 1.2 + 2
+            hh = 0
+            if not hide_header:
+                fontsize = max(8.0, min(12.0, sw / 30.0))
+                hh = 5 + fontsize * 1.2 + 2
             if sw <= cell_w and (sh + hh) <= cell_h:
                 best_s = mid
                 low = mid
@@ -80,7 +82,7 @@ class PDFProcessor:
                 high = mid
         return best_s
 
-    def calculate_layout(self, num_copies):
+    def calculate_layout(self, num_copies, hide_header=False):
         """
         Находит оптимальную сетку и ориентацию листа, чтобы разместить num_copies копий максимально крупно.
         Возвращает: (cols, rows, num_copies, cell_w, cell_h, scale_factor)
@@ -102,7 +104,7 @@ class PDFProcessor:
                 cell_w = w / cols
                 cell_h = h / rows
                 
-                s = self._get_max_scale(cell_w, cell_h)
+                s = self._get_max_scale(cell_w, cell_h, hide_header)
                 if s > 0:
                     sw = self.template_width * s
                     sh = self.template_height * s
@@ -153,14 +155,14 @@ class PDFProcessor:
         shape.finish(color=(0.7, 0.7, 0.7), dashes="[3 3] 0", width=0.5)
         shape.commit()
 
-    def generate_preview(self, num_copies):
+    def generate_preview(self, num_copies, hide_header=False):
         """
         Генерирует изображение (PIL Image) одной страницы A4 для предпросмотра.
         """
         if not self.template_pix:
             return None, 0
 
-        layout_res = self.calculate_layout(num_copies)
+        layout_res = self.calculate_layout(num_copies, hide_header)
         if layout_res[0] == 0:
             return None, 0
         cols, rows, copies_per_page, cell_w, cell_h, scale_factor = layout_res
@@ -179,13 +181,13 @@ class PDFProcessor:
                 y0 = self.MARGIN + r * cell_h
                 cell_rect = fitz.Rect(x0, y0, x0 + cell_w, y0 + cell_h)
                 
-                # Вставляем тестовый текст "Иванов Иван" и "Оценка: ____" в одну строку
-                fontsize = max(8.0, min(12.0, image_scaled_width / 30.0))
-                header_text = "Ученик: Иванов Иван         Оценка: _______"
-                y_img = self._draw_text_without_bg(page, header_text, cell_rect, fontsize)
-                
-                # Вставляем изображение раздатки НИЖЕ текста, строго упираясь в нижнюю границу ячейки
-                img_rect = fitz.Rect(x0, y_img + 2, x0 + image_scaled_width, y0 + cell_h)
+                if not hide_header:
+                    fontsize = max(8.0, min(12.0, image_scaled_width / 30.0))
+                    header_text = "Ученик: Иванов Иван         Оценка: _______"
+                    y_img = self._draw_text_without_bg(page, header_text, cell_rect, fontsize)
+                    img_rect = fitz.Rect(x0, y_img + 2, x0 + image_scaled_width, y0 + cell_h)
+                else:
+                    img_rect = fitz.Rect(x0, y0, x0 + image_scaled_width, y0 + cell_h)
                 page.insert_image(img_rect, pixmap=self.template_pix)
 
         # Рисуем линии реза
@@ -199,7 +201,7 @@ class PDFProcessor:
         doc.close()
         return img, copies_per_page
 
-    def generate_pdf(self, num_copies, students, output_path):
+    def generate_pdf(self, num_copies, students, output_path, hide_header=False):
         """
         Генерирует финальный многостраничный PDF для всех учеников.
         Если список пуст, делает пустую строку вместо имени.
@@ -207,7 +209,7 @@ class PDFProcessor:
         if not self.template_pix:
             return False, "Не загружен файл раздатки."
 
-        layout_res = self.calculate_layout(num_copies)
+        layout_res = self.calculate_layout(num_copies, hide_header)
         if layout_res[0] == 0:
             return False, "Невозможно разместить ни одной копии на листе."
         cols, rows, copies_per_page, cell_w, cell_h, scale_factor = layout_res
@@ -241,14 +243,18 @@ class PDFProcessor:
                     y0 = self.MARGIN + r * cell_h
                     cell_rect = fitz.Rect(x0, y0, x0 + cell_w, y0 + cell_h)
                     
-                    fontsize = max(8.0, min(12.0, image_scaled_width / 30.0))
-                    name_part = f"Ученик: {student_name}" if student_name else "Фамилия, Имя: ____________"
-                    header_text = f"{name_part}         Оценка: _______"
-                    
-                    y_img = self._draw_text_without_bg(page, header_text, cell_rect, fontsize)
-                    
-                    # Жестко ограничиваем низ картинки границей ячейки
-                    img_rect = fitz.Rect(x0, y_img + 2, x0 + image_scaled_width, y0 + cell_h)
+                    if not hide_header:
+                        fontsize = max(8.0, min(12.0, image_scaled_width / 30.0))
+                        name_part = f"Ученик: {student_name}" if student_name else "Фамилия, Имя: ____________"
+                        header_text = f"{name_part}         Оценка: _______"
+                        
+                        y_img = self._draw_text_without_bg(page, header_text, cell_rect, fontsize)
+                        
+                        # Жестко ограничиваем низ картинки границей ячейки
+                        img_rect = fitz.Rect(x0, y_img + 2, x0 + image_scaled_width, y0 + cell_h)
+                    else:
+                        img_rect = fitz.Rect(x0, y0, x0 + image_scaled_width, y0 + cell_h)
+                        
                     page.insert_image(img_rect, pixmap=self.template_pix)
                     
                     student_idx += 1

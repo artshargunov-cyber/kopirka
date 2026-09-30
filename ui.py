@@ -143,6 +143,21 @@ class MainWindow(QMainWindow):
         self.copies_spinbox.valueChanged.connect(self.on_copies_change)
         self.left_layout.addWidget(self.copies_spinbox)
 
+        # Общее количество (если список пуст)
+        self.total_copies_label = QLabel("Общее количество раздаток (без списка):")
+        self.left_layout.addWidget(self.total_copies_label)
+        
+        self.spin_total_copies = QSpinBox()
+        self.spin_total_copies.setRange(1, 1000)
+        self.spin_total_copies.setValue(1)
+        self.spin_total_copies.valueChanged.connect(lambda: self.update_stats())
+        self.left_layout.addWidget(self.spin_total_copies)
+
+        # Чекбокс отключения заголовка
+        self.cb_hide_header = QCheckBox("Скрыть шапку (Без ФИО и Оценки)")
+        self.cb_hide_header.stateChanged.connect(lambda: self.update_preview())
+        self.left_layout.addWidget(self.cb_hide_header)
+
         # Инфо панели
         self.stats_frame = QFrame()
         self.stats_layout = QVBoxLayout(self.stats_frame)
@@ -389,11 +404,12 @@ class MainWindow(QMainWindow):
         count = len(selected_students)
         
         if count == 0 and not self.roster_manager.get_all_students():
-            total_needed = 1
+            total_needed = self.spin_total_copies.value()
         else:
             total_needed = count
 
-        layout_res = self.pdf_processor.calculate_layout(self.copies_per_page)
+        hide_header = self.cb_hide_header.isChecked()
+        layout_res = self.pdf_processor.calculate_layout(self.copies_per_page, hide_header)
         copies_per_page_res = layout_res[2] if layout_res[0] > 0 else 0
         
         pages = 0
@@ -406,7 +422,8 @@ class MainWindow(QMainWindow):
         self.lbl_pages_needed.setText(f"Всего потребуется листов А4: {pages}")
 
     def update_preview(self):
-        img, copies_per_page = self.pdf_processor.generate_preview(self.copies_per_page)
+        hide_header = self.cb_hide_header.isChecked()
+        img, copies_per_page = self.pdf_processor.generate_preview(self.copies_per_page, hide_header)
         
         if img:
             # Конвертация PIL Image в QPixmap
@@ -440,6 +457,9 @@ class MainWindow(QMainWindow):
             return
 
         selected_students = self.roster_manager.get_selected_students()
+        if not selected_students and not self.roster_manager.get_all_students():
+            total_needed = self.spin_total_copies.value()
+            selected_students = [""] * total_needed
         
         filepath, _ = QFileDialog.getSaveFileName(
             self,
@@ -453,7 +473,8 @@ class MainWindow(QMainWindow):
             self.btn_save.setText("Сохранение...")
             QApplication.processEvents() # Обновляем UI
             
-            success, msg = self.pdf_processor.generate_pdf(self.copies_per_page, selected_students, filepath)
+            hide_header = self.cb_hide_header.isChecked()
+            success, msg = self.pdf_processor.generate_pdf(self.copies_per_page, selected_students, filepath, hide_header)
             
             self.btn_save.setEnabled(True)
             self.btn_save.setText("Сохранить для печати")
