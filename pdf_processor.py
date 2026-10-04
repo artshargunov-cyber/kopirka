@@ -189,10 +189,10 @@ class PDFProcessor:
                     fontsize = max(8.0, min(12.0, image_scaled_width / 30.0))
                     header_text = "Ученик: Иванов Иван         Оценка: _______"
                     y_img = self._draw_text_without_bg(page, header_text, cell_rect, fontsize)
-                    img_rect = fitz.Rect(x0, y_img + 2, x0 + image_scaled_width, y0 + cell_h)
+                    img_rect = fitz.Rect(x0, y_img + 2, x0 + image_scaled_width, y_img + 2 + image_scaled_height)
                 else:
-                    img_rect = fitz.Rect(x0, y0, x0 + image_scaled_width, y0 + cell_h)
-                page.insert_image(img_rect, pixmap=self.template_pix)
+                    img_rect = fitz.Rect(x0, y0, x0 + image_scaled_width, y0 + image_scaled_height)
+                page.insert_image(img_rect, pixmap=self.template_pix, keep_proportion=True)
                 drawn_count += 1
 
         # Рисуем линии реза
@@ -256,12 +256,12 @@ class PDFProcessor:
                         
                         y_img = self._draw_text_without_bg(page, header_text, cell_rect, fontsize)
                         
-                        # Жестко ограничиваем низ картинки границей ячейки
-                        img_rect = fitz.Rect(x0, y_img + 2, x0 + image_scaled_width, y0 + cell_h)
+                        # Используем точную рассчитанную высоту, чтобы картинка не вытягивалась
+                        img_rect = fitz.Rect(x0, y_img + 2, x0 + image_scaled_width, y_img + 2 + image_scaled_height)
                     else:
-                        img_rect = fitz.Rect(x0, y0, x0 + image_scaled_width, y0 + cell_h)
+                        img_rect = fitz.Rect(x0, y0, x0 + image_scaled_width, y0 + image_scaled_height)
                         
-                    page.insert_image(img_rect, pixmap=self.template_pix)
+                    page.insert_image(img_rect, pixmap=self.template_pix, keep_proportion=True)
                     
                     student_idx += 1
                     drawn_on_page += 1
