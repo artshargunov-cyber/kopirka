@@ -769,8 +769,22 @@ class MainWindow(QMainWindow):
                     write_log("printer.pageRect...")
                     rect = printer.pageRect(QPrinter.Unit.DevicePixel)
                     
-                    write_log(f"painter.drawImage(rect={rect.toRect()})...")
-                    painter.drawImage(rect.toRect(), img)
+                    from PyQt6.QtCore import QRectF
+                    write_log("Вычисление пропорций для принтера...")
+                    img_size = img.size()
+                    w_ratio = rect.width() / img_size.width()
+                    h_ratio = rect.height() / img_size.height()
+                    scale = min(w_ratio, h_ratio)
+                    
+                    new_w = img_size.width() * scale
+                    new_h = img_size.height() * scale
+                    
+                    x = rect.x() + (rect.width() - new_w) / 2.0
+                    y = rect.y() + (rect.height() - new_h) / 2.0
+                    
+                    target_rect = QRectF(x, y, new_w, new_h)
+                    write_log(f"painter.drawImage(target_rect={target_rect})...")
+                    painter.drawImage(target_rect, img)
                     write_log(f"Страница {i+1} отрисована!")
                 
                 write_log("painter.end()...")
