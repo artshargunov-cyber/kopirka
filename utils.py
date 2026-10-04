@@ -2,7 +2,7 @@ import os
 import sys
 
 # Версия приложения (major.minor.patch)
-VERSION = "1.5.7"
+VERSION = "1.5.8"
 APP_NAME = "Kopirka"
 
 

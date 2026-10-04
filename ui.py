@@ -682,7 +682,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Ошибка", "Сначала выберите файл для раздатки.")
             return
 
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer = QPrinter()
         dialog = QPrintDialog(printer, self)
         if dialog.exec() == QPrintDialog.DialogCode.Accepted:
             self.btn_print_test.setText("Печать...")
@@ -695,7 +695,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Ошибка", "Сначала выберите файл для раздатки.")
             return
 
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer = QPrinter()
         dialog = QPrintDialog(printer, self)
         if dialog.exec() == QPrintDialog.DialogCode.Accepted:
             self.btn_print_all.setText("Печать...")
@@ -733,22 +733,36 @@ class MainWindow(QMainWindow):
         if success:
             try:
                 doc = fitz.open(tmp_path)
-                painter = QPainter(printer)
+                painter = QPainter()
+                if not painter.begin(printer):
+                    raise RuntimeError("Не удалось инициализировать QPainter для выбранного принтера.")
+                
                 for i in range(len(doc)):
                     if i > 0:
                         printer.newPage()
                     page = doc[i]
-                    # Рендерим с высоким DPI для принтера
-                    pix = page.get_pixmap(dpi=300)
+                    # Рендерим с DPI 200 (достаточно для печати, предотвращает переполнение памяти GDI)
+                    pix = page.get_pixmap(dpi=200)
                     img = QImage.fromData(pix.tobytes("png"))
                     
+                    if img.isNull():
+                        raise RuntimeError(f"Ошибка формирования картинки для страницы {i+1}.")
+                    
                     rect = printer.pageRect(QPrinter.Unit.DevicePixel)
-                    painter.drawImage(rect, img)
+                    painter.drawImage(rect.toRect(), img)
+                
                 painter.end()
                 doc.close()
                 QMessageBox.information(self, "Успех", "Документ успешно отправлен на печать!")
             except Exception as e:
-                QMessageBox.critical(self, "Ошибка", f"Ошибка при печати: {e}")
+                import traceback
+                error_trace = traceback.format_exc()
+                try:
+                    with open("print_error_log.txt", "w", encoding="utf-8") as f:
+                        f.write(error_trace)
+                except:
+                    pass
+                QMessageBox.critical(self, "Ошибка", f"Ошибка при печати:\n{e}\n\nЛог сохранен в print_error_log.txt")
         else:
             QMessageBox.critical(self, "Ошибка", msg)
             
