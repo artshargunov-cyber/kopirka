@@ -706,6 +706,18 @@ class MainWindow(QMainWindow):
     def _do_print(self, printer, is_test):
         import tempfile
         import fitz
+        from datetime import datetime
+        
+        log_path = os.path.join(os.path.expanduser("~"), "Desktop", "kopirka_print_log.txt")
+        def write_log(msg):
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(f"[{datetime.now()}] {msg}\n")
+            except:
+                pass
+                
+        write_log("--- НАЧАЛО ПЕЧАТИ ---")
+
         tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
         os.close(tmp_fd)
         
@@ -721,55 +733,74 @@ class MainWindow(QMainWindow):
             hide_header = True
 
         if is_test:
-            # Для тестовой страницы берем только учеников на 1 страницу
             students = students[:self.copies_per_page]
             if not students:
                 students = [""] * self.copies_per_page
             
+        write_log("Генерация PDF...")
         success, msg = self.pdf_processor.generate_pdf(
             self.copies_per_page, students, tmp_path, hide_header
         )
         
         if success:
             try:
+                write_log("Открытие PDF через fitz...")
                 doc = fitz.open(tmp_path)
+                
+                write_log("Создание QPainter...")
                 painter = QPainter()
+                write_log(f"painter.begin()... (Printer name: {printer.printerName()})")
+                
                 if not painter.begin(printer):
+                    write_log("Ошибка: painter.begin(printer) вернул False!")
                     raise RuntimeError("Не удалось инициализировать QPainter для выбранного принтера.")
                 
+                write_log("painter.begin() успешен!")
+                
                 for i in range(len(doc)):
+                    write_log(f"Обработка страницы {i+1}...")
                     if i > 0:
+                        write_log(f"printer.newPage() для страницы {i+1}...")
                         printer.newPage()
+                        
                     page = doc[i]
-                    # Рендерим с DPI 200 (достаточно для печати, предотвращает переполнение памяти GDI)
+                    write_log("get_pixmap(dpi=200)...")
                     pix = page.get_pixmap(dpi=200)
+                    
+                    write_log("QImage.fromData...")
                     img = QImage.fromData(pix.tobytes("png"))
                     
                     if img.isNull():
+                        write_log("Ошибка: img.isNull()!")
                         raise RuntimeError(f"Ошибка формирования картинки для страницы {i+1}.")
                     
+                    write_log("printer.pageRect...")
                     rect = printer.pageRect(QPrinter.Unit.DevicePixel)
+                    
+                    write_log(f"painter.drawImage(rect={rect.toRect()})...")
                     painter.drawImage(rect.toRect(), img)
+                    write_log(f"Страница {i+1} отрисована!")
                 
+                write_log("painter.end()...")
                 painter.end()
+                
+                write_log("doc.close()...")
                 doc.close()
                 QMessageBox.information(self, "Успех", "Документ успешно отправлен на печать!")
             except Exception as e:
                 import traceback
                 error_trace = traceback.format_exc()
-                try:
-                    with open("print_error_log.txt", "w", encoding="utf-8") as f:
-                        f.write(error_trace)
-                except:
-                    pass
-                QMessageBox.critical(self, "Ошибка", f"Ошибка при печати:\n{e}\n\nЛог сохранен в print_error_log.txt")
+                write_log(f"PYTHON EXCEPTION:\n{error_trace}")
+                QMessageBox.critical(self, "Ошибка", f"Ошибка при печати:\n{e}\n\nЛог сохранен на рабочем столе")
         else:
+            write_log(f"generate_pdf вернул ошибку: {msg}")
             QMessageBox.critical(self, "Ошибка", msg)
             
         try:
             os.remove(tmp_path)
         except:
             pass
+        write_log("--- КОНЕЦ ПЕЧАТИ ---")
 
     def save_pdf(self):
         if not self.pdf_processor.template_pix:
