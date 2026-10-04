@@ -619,9 +619,9 @@ class MainWindow(QMainWindow):
             selected = self.roster_manager.get_selected_students()
             if not selected:
                 # Если ничего не выбрано, берём всех
-                selected = self.roster_manager.get_all_students()
+                selected = [s["name"] for s in self.roster_manager.get_all_students()]
             # Если список вообще пуст — одна пустая копия
-            return [s["name"] for s in selected] if selected else [""]
+            return selected if selected else [""]
         else:
             # Режим без шапки — нужное количество пустых
             count = self.spin_total_copies.value()
