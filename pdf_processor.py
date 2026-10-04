@@ -175,8 +175,12 @@ class PDFProcessor:
         image_scaled_height = self.template_height * scale_factor
 
         # Рендерим тестовые копии
+        drawn_count = 0
         for r in range(rows):
             for c in range(cols):
+                if drawn_count >= num_copies:
+                    continue
+                
                 x0 = self.MARGIN + c * cell_w
                 y0 = self.MARGIN + r * cell_h
                 cell_rect = fitz.Rect(x0, y0, x0 + cell_w, y0 + cell_h)
@@ -189,6 +193,7 @@ class PDFProcessor:
                 else:
                     img_rect = fitz.Rect(x0, y0, x0 + image_scaled_width, y0 + cell_h)
                 page.insert_image(img_rect, pixmap=self.template_pix)
+                drawn_count += 1
 
         # Рисуем линии реза
         self._draw_cut_lines(page, cols, rows, cell_w, cell_h)
@@ -232,10 +237,11 @@ class PDFProcessor:
         while student_idx < total_students:
             page = doc.new_page(width=self.A4_WIDTH, height=self.A4_HEIGHT)
             
+            drawn_on_page = 0
             for r in range(rows):
                 for c in range(cols):
-                    if student_idx >= total_students:
-                        break # Все ученики размещены
+                    if drawn_on_page >= copies_per_page or student_idx >= total_students:
+                        continue # Skip remaining cells on this page
                         
                     student_name = students[student_idx]
                     
@@ -258,6 +264,7 @@ class PDFProcessor:
                     page.insert_image(img_rect, pixmap=self.template_pix)
                     
                     student_idx += 1
+                    drawn_on_page += 1
 
             self._draw_cut_lines(page, cols, rows, cell_w, cell_h)
 
