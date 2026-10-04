@@ -91,9 +91,36 @@ class MainWindow(QMainWindow):
         self.left_layout.setSpacing(10)
 
         # Заголовок
+        title_layout = QHBoxLayout()
+        title_layout.setContentsMargins(0, 0, 0, 0)
         self.title_label = QLabel("✂ Копирка")
         self.title_label.setObjectName("TitleLabel")
-        self.left_layout.addWidget(self.title_label)
+        title_layout.addWidget(self.title_label)
+        
+        info_label = QLabel("ℹ️")
+        info_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        info_label.setToolTip(
+            "<div style='white-space: pre-wrap; width: 400px; font-size: 13px;'>"
+            "<b>О программе «Копирка»</b><br><br>"
+            "Данное приложение является бесплатным и свободным программным обеспечением "
+            "(Open Source). Разработано при помощи искусственного интеллекта.<br><br>"
+            "<b>🔒 Конфиденциальность:</b> Программа работает локально на вашем компьютере. "
+            "Она не собирает, не хранит и не передает ваши персональные данные, "
+            "списки класса или загружаемые файлы на серверы третьих лиц.<br><br>"
+            "<b>⚖️ Отказ от ответственности:</b> Пользователь самостоятельно несет ответственность "
+            "за соблюдение авторских и смежных прав в отношении любых материалов "
+            "(изображений, текстов, документов), загружаемых, тиражируемых и "
+            "распространяемых с помощью данного программного обеспечения. "
+            "Разработчик не несет ответственности за неправомерное использование "
+            "чужой интеллектуальной собственности."
+            "</div>"
+        )
+        # Добавим небольшой отступ сверху для значка, чтобы он был по центру текста
+        info_label.setStyleSheet("padding-top: 5px; font-size: 16px;")
+        
+        title_layout.addWidget(info_label)
+        title_layout.addStretch()
+        self.left_layout.addLayout(title_layout)
 
         # Загрузка файла
         self.btn_load_file = QPushButton("📂  Добавить файл (PDF / JPG / PNG / Word)")
