@@ -89,10 +89,13 @@ def download_and_run_installer(url, progress_callback=None):
                     if progress_callback and total:
                         progress_callback(int(downloaded / total * 100))
 
-        # Запускаем установщик и завершаем текущее приложение
-        subprocess.Popen([installer_path], shell=True)
+        # Запускаем установщик без shell=True для надежности
+        # Добавляем флаг /SILENT если нужно, но лучше пусть будет обычный
+        subprocess.Popen([installer_path])
         sys.exit(0)
         return True
     except Exception as e:
-        print(f"Ошибка скачивания: {e}")
+        print(f"Ошибка скачивания или запуска: {e}")
+        import webbrowser
+        webbrowser.open(url)
         return False
