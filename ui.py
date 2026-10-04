@@ -729,7 +729,7 @@ class MainWindow(QMainWindow):
                     page = doc[i]
                     # Рендерим с высоким DPI для принтера
                     pix = page.get_pixmap(dpi=300)
-                    img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
+                    img = QImage.fromData(pix.tobytes("png"))
                     
                     rect = printer.pageRect(QPrinter.Unit.DevicePixel)
                     painter.drawImage(rect, img)
