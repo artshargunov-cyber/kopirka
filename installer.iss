@@ -24,9 +24,6 @@ SetupIconFile=dist\Kopirka\{#MyAppExeName}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
-; Красивый заголовок
-WizardImageFile=compiler:WizModernImage-IS.bmp
-WizardSmallImageFile=compiler:WizModernSmallImage-IS.bmp
 UninstallDisplayName={#MyAppName}
 ; Сохранять данные пользователя при удалении
 UninstallDisplayIcon={app}\{#MyAppExeName}
