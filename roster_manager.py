@@ -1,8 +1,10 @@
 import json
 import os
 import csv
+from utils import get_user_data_path
 
-CACHE_FILE = "roster_cache.json"
+CACHE_FILE = get_user_data_path("roster_cache.json")
+
 
 class RosterManager:
     def __init__(self):

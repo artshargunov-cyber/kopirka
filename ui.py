@@ -1,11 +1,14 @@
 import os
 import math
+import io
+import zipfile
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel, 
-    QSlider, QScrollArea, QCheckBox, QFileDialog, QMessageBox, QFrame, QSizePolicy,
-    QDialog, QTextEdit, QApplication, QComboBox, QSpinBox
+    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel,
+    QScrollArea, QCheckBox, QFileDialog, QMessageBox, QFrame, QSizePolicy,
+    QDialog, QTextEdit, QApplication, QSpinBox, QButtonGroup, QRadioButton,
+    QStackedWidget
 )
-from PyQt6.QtCore import Qt, QSize, QMimeData
+from PyQt6.QtCore import Qt, QSize
 from crop_widget import ImageCropDialog
 from PyQt6.QtGui import QPixmap, QFont, QImage, QImageReader, QIcon
 from io import BytesIO
@@ -14,12 +17,13 @@ from roster_manager import RosterManager
 from pdf_processor import PDFProcessor
 from utils import get_resource_path
 
+
 class RosterEditDialog(QDialog):
     def __init__(self, parent, current_students):
         super().__init__(parent)
         self.setWindowTitle("Редактирование списка класса")
         self.setMinimumSize(400, 500)
-        self.setStyleSheet(parent.styleSheet()) # Наследуем стили
+        self.setStyleSheet(parent.styleSheet())
 
         layout = QVBoxLayout(self)
         
@@ -27,9 +31,8 @@ class RosterEditDialog(QDialog):
         layout.addWidget(info_label)
 
         self.text_edit = QTextEdit()
-        # Заполняем текущими учениками
-        names = [s["name"] for s in current_students]
-        self.text_edit.setPlainText("\\n".join(names))
+        names = [s["name"] for s in current_students if s["name"]]
+        self.text_edit.setPlainText("\n".join(names))
         layout.addWidget(self.text_edit)
 
         self.btn_save = QPushButton("Сохранить")
@@ -40,30 +43,35 @@ class RosterEditDialog(QDialog):
     def get_text(self):
         return self.text_edit.toPlainText()
 
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
         self.setWindowTitle("Копирка")
-        self.resize(1000, 700)
-        self.setMinimumSize(800, 600)
-        
-        # Устанавливаем иконку приложения
+        self.resize(1060, 700)
+        self.setMinimumSize(860, 600)
+
+        # Устанавливаем иконку
         icon_path = get_resource_path(os.path.join("assets", "icon.svg"))
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
-            
-        # Включаем drag-and-drop
+
+        # Иконка в формате .ico (для Windows taskbar)
+        ico_path = get_resource_path(os.path.join("assets", "icon.ico"))
+        if os.path.exists(ico_path):
+            self.setWindowIcon(QIcon(ico_path))
+
         self.setAcceptDrops(True)
-        
+
         self.roster_manager = RosterManager()
         self.pdf_processor = PDFProcessor()
-        
         self.copies_per_page = 4
-        
+        # Режим: "roster" = по списку, "blank" = без шапки
+        self.print_mode = "roster"
+
         self.setup_ui()
         self.apply_stylesheet()
-        
         self.refresh_student_list()
         self.update_stats()
 
@@ -74,54 +82,83 @@ class MainWindow(QMainWindow):
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 
-        # Левая панель
+        # ── ЛЕВАЯ ПАНЕЛЬ ──────────────────────────────────────
         self.left_panel = QFrame()
-        self.left_panel.setFixedWidth(350)
+        self.left_panel.setFixedWidth(360)
         self.left_panel.setObjectName("LeftPanel")
         self.left_layout = QVBoxLayout(self.left_panel)
         self.left_layout.setContentsMargins(20, 20, 20, 20)
         self.left_layout.setSpacing(10)
 
-        self.title_label = QLabel("Копирка")
+        # Заголовок
+        self.title_label = QLabel("✂ Копирка")
         self.title_label.setObjectName("TitleLabel")
         self.left_layout.addWidget(self.title_label)
 
-        self.btn_load_file = QPushButton("Добавить файл")
+        # Загрузка файла
+        self.btn_load_file = QPushButton("📂  Добавить файл (PDF / JPG / PNG / Word)")
         self.btn_load_file.clicked.connect(self.load_template_file)
         self.left_layout.addWidget(self.btn_load_file)
 
-        self.file_status_label = QLabel("Файл не выбран (или перетащите сюда)")
+        self.file_status_label = QLabel("Файл не выбран  (или перетащите сюда)")
         self.file_status_label.setObjectName("StatusLabel")
         self.file_status_label.setWordWrap(True)
         self.left_layout.addWidget(self.file_status_label)
 
-        self.btn_edit_roster = QPushButton("Изменить список класса")
+        # Разделитель
+        self.left_layout.addWidget(self._make_separator())
+
+        # ── ВЫБОР РЕЖИМА ──────────────────────────────────────
+        mode_label = QLabel("Режим печати:")
+        mode_label.setObjectName("SectionLabel")
+        self.left_layout.addWidget(mode_label)
+
+        mode_frame = QFrame()
+        mode_layout = QHBoxLayout(mode_frame)
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.setSpacing(6)
+
+        self.rb_roster = QRadioButton("По списку класса")
+        self.rb_roster.setChecked(True)
+        self.rb_blank = QRadioButton("Без шапки / ФИО")
+
+        self.mode_group = QButtonGroup()
+        self.mode_group.addButton(self.rb_roster, 0)
+        self.mode_group.addButton(self.rb_blank, 1)
+        self.mode_group.idClicked.connect(self._on_mode_changed)
+
+        mode_layout.addWidget(self.rb_roster)
+        mode_layout.addWidget(self.rb_blank)
+        self.left_layout.addWidget(mode_frame)
+
+        # ── СТЕК: разные настройки для каждого режима ─────────
+        self.mode_stack = QStackedWidget()
+
+        # -- Страница 0: по списку --
+        roster_page = QWidget()
+        roster_layout = QVBoxLayout(roster_page)
+        roster_layout.setContentsMargins(0, 0, 0, 0)
+        roster_layout.setSpacing(6)
+
+        self.btn_edit_roster = QPushButton("✏  Изменить список класса")
         self.btn_edit_roster.setObjectName("SecondaryButton")
         self.btn_edit_roster.clicked.connect(self.edit_roster)
-        self.left_layout.addWidget(self.btn_edit_roster)
+        roster_layout.addWidget(self.btn_edit_roster)
 
-        # Контейнер для кнопок Выбрать всех / Снять выбор
-        self.sel_frame = QFrame()
-        self.sel_layout = QHBoxLayout(self.sel_frame)
-        self.sel_layout.setContentsMargins(0, 0, 0, 0)
-        
+        sel_frame = QFrame()
+        sel_layout = QHBoxLayout(sel_frame)
+        sel_layout.setContentsMargins(0, 0, 0, 0)
+        sel_layout.setSpacing(6)
+
         self.btn_sel_all = QPushButton("Выбрать всех")
         self.btn_sel_all.clicked.connect(lambda: self.toggle_all(True))
-        self.sel_layout.addWidget(self.btn_sel_all)
-        
+        sel_layout.addWidget(self.btn_sel_all)
+
         self.btn_desel_all = QPushButton("Снять выбор")
         self.btn_desel_all.clicked.connect(lambda: self.toggle_all(False))
-        self.sel_layout.addWidget(self.btn_desel_all)
-        
-        self.left_layout.addWidget(self.sel_frame)
+        sel_layout.addWidget(self.btn_desel_all)
+        roster_layout.addWidget(sel_frame)
 
-        # Кнопка добавления пустого ученика
-        self.btn_add_empty = QPushButton("+ Добавить без имени")
-        self.btn_add_empty.setObjectName("SecondaryButton")
-        self.btn_add_empty.clicked.connect(self.add_empty_student)
-        self.left_layout.addWidget(self.btn_add_empty)
-
-        # Список учеников
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_widget = QWidget()
@@ -129,73 +166,92 @@ class MainWindow(QMainWindow):
         self.scroll_layout = QVBoxLayout(self.scroll_widget)
         self.scroll_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.scroll_area.setWidget(self.scroll_widget)
-        self.left_layout.addWidget(self.scroll_area, stretch=1)
-        
+        roster_layout.addWidget(self.scroll_area, stretch=1)
         self.student_checkboxes = []
 
-        # Выбор количества копий на листе
-        self.copies_label = QLabel("Количество копий на листе А4:")
-        self.left_layout.addWidget(self.copies_label)
-        
-        self.copies_spinbox = QSpinBox()
-        self.copies_spinbox.setRange(1, 100)
-        self.copies_spinbox.setValue(self.copies_per_page)
-        self.copies_spinbox.valueChanged.connect(self.on_copies_change)
-        self.left_layout.addWidget(self.copies_spinbox)
+        self.mode_stack.addWidget(roster_page)
 
-        # Общее количество (если список пуст)
-        self.total_copies_label = QLabel("Общее количество раздаток (без списка):")
-        self.left_layout.addWidget(self.total_copies_label)
-        
+        # -- Страница 1: без шапки --
+        blank_page = QWidget()
+        blank_layout = QVBoxLayout(blank_page)
+        blank_layout.setContentsMargins(0, 0, 0, 0)
+        blank_layout.setSpacing(6)
+
+        blank_layout.addWidget(QLabel("Сколько раздаток напечатать:"))
         self.spin_total_copies = QSpinBox()
         self.spin_total_copies.setRange(1, 1000)
         self.spin_total_copies.setValue(1)
-        self.spin_total_copies.valueChanged.connect(lambda: self.update_stats())
-        self.left_layout.addWidget(self.spin_total_copies)
+        self.spin_total_copies.valueChanged.connect(self.update_stats)
+        blank_layout.addWidget(self.spin_total_copies)
 
-        # Чекбокс отключения заголовка
-        self.cb_hide_header = QCheckBox("Скрыть шапку (Без ФИО и Оценки)")
-        self.cb_hide_header.stateChanged.connect(lambda: self.update_preview())
-        self.left_layout.addWidget(self.cb_hide_header)
+        blank_layout.addStretch()
+        self.mode_stack.addWidget(blank_page)
 
-        # Инфо панели
+        self.left_layout.addWidget(self.mode_stack, stretch=1)
+
+        # Разделитель
+        self.left_layout.addWidget(self._make_separator())
+
+        # ── НАСТРОЙКИ РАЗМЕЩЕНИЯ ──────────────────────────────
+        settings_label = QLabel("Размещение на листе:")
+        settings_label.setObjectName("SectionLabel")
+        self.left_layout.addWidget(settings_label)
+
+        self.copies_spinbox = QSpinBox()
+        self.copies_spinbox.setRange(1, 100)
+        self.copies_spinbox.setValue(self.copies_per_page)
+        self.copies_spinbox.setPrefix("Копий на листе А4:  ")
+        self.copies_spinbox.valueChanged.connect(self.on_copies_change)
+        self.left_layout.addWidget(self.copies_spinbox)
+
+        # ── СТАТИСТИКА ────────────────────────────────────────
         self.stats_frame = QFrame()
-        self.stats_layout = QVBoxLayout(self.stats_frame)
-        self.stats_layout.setContentsMargins(0, 10, 0, 10)
-        
-        self.lbl_selected_count = QLabel("Выбрано учеников: 0")
-        self.stats_layout.addWidget(self.lbl_selected_count)
-        
-        self.lbl_pages_needed = QLabel("Всего потребуется листов А4: 0")
-        self.stats_layout.addWidget(self.lbl_pages_needed)
-        
+        self.stats_frame.setObjectName("StatsFrame")
+        stats_layout = QVBoxLayout(self.stats_frame)
+        stats_layout.setContentsMargins(10, 8, 10, 8)
+        stats_layout.setSpacing(2)
+
+        self.lbl_selected_count = QLabel("Выбрано: 0")
+        self.lbl_pages_needed = QLabel("Потребуется листов А4: 0")
+        stats_layout.addWidget(self.lbl_selected_count)
+        stats_layout.addWidget(self.lbl_pages_needed)
         self.left_layout.addWidget(self.stats_frame)
 
-        # Сохранить PDF
-        self.btn_save = QPushButton("Сохранить для печати")
+        # Кнопка сохранения
+        self.btn_save = QPushButton("🖨  Сохранить PDF для печати")
         self.btn_save.setObjectName("PrimaryButton")
-        self.btn_save.setMinimumHeight(45)
+        self.btn_save.setMinimumHeight(48)
         self.btn_save.clicked.connect(self.save_pdf)
         self.left_layout.addWidget(self.btn_save)
 
         self.main_layout.addWidget(self.left_panel)
 
-        # Правая панель
+        # ── ПРАВАЯ ПАНЕЛЬ (превью) ────────────────────────────
         self.right_panel = QFrame()
         self.right_panel.setObjectName("RightPanel")
         self.right_layout = QVBoxLayout(self.right_panel)
         self.right_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
+
         self.preview_label = QLabel("Загрузите файл для предпросмотра")
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_label.setFixedSize(420, 594) # Пропорции A4
+        self.preview_label.setFixedSize(420, 594)
         self.preview_label.setObjectName("PreviewLabel")
         self.right_layout.addWidget(self.preview_label)
 
         self.main_layout.addWidget(self.right_panel, stretch=1)
 
+    def _make_separator(self):
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setObjectName("Separator")
+        return line
+
+    def _on_mode_changed(self, btn_id):
+        self.print_mode = "roster" if btn_id == 0 else "blank"
+        self.mode_stack.setCurrentIndex(btn_id)
+        self.update_preview()
+
     def apply_stylesheet(self):
-        # Современный стиль в светлых/серых тонах
         self.setStyleSheet("""
             QMainWindow, QDialog {
                 background-color: #F3F4F6;
@@ -205,21 +261,29 @@ class MainWindow(QMainWindow):
                 border-right: 1px solid #E5E7EB;
             }
             #RightPanel {
-                background-color: #F9FAFB;
+                background-color: #F0F4FF;
             }
             #TitleLabel {
-                font-size: 24px;
+                font-size: 22px;
                 font-weight: bold;
-                color: #111827;
-                margin-bottom: 10px;
+                color: #1E3A8A;
+                margin-bottom: 4px;
+            }
+            #SectionLabel {
+                font-size: 12px;
+                font-weight: bold;
+                color: #6B7280;
+                text-transform: uppercase;
+                letter-spacing: 1px;
             }
             QLabel {
-                font-size: 14px;
+                font-size: 13px;
                 color: #374151;
             }
             #StatusLabel {
                 color: #6B7280;
                 font-style: italic;
+                font-size: 12px;
             }
             QPushButton {
                 background-color: #F3F4F6;
@@ -228,6 +292,7 @@ class MainWindow(QMainWindow):
                 padding: 8px 12px;
                 color: #374151;
                 font-weight: 500;
+                font-size: 13px;
             }
             QPushButton:hover {
                 background-color: #E5E7EB;
@@ -245,6 +310,7 @@ class MainWindow(QMainWindow):
                 border: none;
                 font-size: 14px;
                 font-weight: bold;
+                border-radius: 8px;
             }
             #PrimaryButton:hover {
                 background-color: #1D4ED8;
@@ -259,27 +325,53 @@ class MainWindow(QMainWindow):
             }
             QTextEdit {
                 padding: 8px;
-                font-size: 14px;
+                font-size: 13px;
                 color: #111827;
             }
             QCheckBox {
-                font-size: 14px;
-                color: #111827;
-                padding: 4px;
-                background-color: transparent;
+                font-size: 13px;
+                color: #374151;
+                padding: 3px 0;
             }
-            QSlider::groove:horizontal {
-                border: 1px solid #999999;
-                height: 8px;
-                background: #E5E7EB;
-                border-radius: 4px;
-            }
-            QSlider::handle:horizontal {
-                background: #2563EB;
-                border: 1px solid #2563EB;
+            QCheckBox::indicator {
                 width: 16px;
-                margin: -4px 0;
-                border-radius: 8px;
+                height: 16px;
+                border-radius: 4px;
+                border: 1px solid #D1D5DB;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #2563EB;
+                border-color: #2563EB;
+            }
+            QRadioButton {
+                font-size: 13px;
+                color: #374151;
+                padding: 6px 8px;
+                border: 1px solid #D1D5DB;
+                border-radius: 6px;
+            }
+            QRadioButton:checked {
+                background-color: #EFF6FF;
+                border-color: #2563EB;
+                color: #1D4ED8;
+                font-weight: bold;
+            }
+            QSpinBox {
+                border: 1px solid #D1D5DB;
+                border-radius: 6px;
+                padding: 6px 8px;
+                font-size: 13px;
+                background: white;
+            }
+            #StatsFrame {
+                background-color: #F0F9FF;
+                border: 1px solid #BAE6FD;
+                border-radius: 6px;
+            }
+            #Separator {
+                color: #E5E7EB;
+                background: #E5E7EB;
+                max-height: 1px;
             }
             #PreviewLabel {
                 background-color: #FFFFFF;
@@ -287,35 +379,112 @@ class MainWindow(QMainWindow):
                 border-radius: 4px;
                 color: #9CA3AF;
             }
+            QScrollBar:vertical {
+                border: none;
+                background: #F3F4F6;
+                width: 8px;
+                margin: 0;
+            }
+            QScrollBar::handle:vertical {
+                background: #D1D5DB;
+                border-radius: 4px;
+                min-height: 20px;
+            }
         """)
+
+    # ── ЗАГРУЗКА ФАЙЛОВ ────────────────────────────────────────────
 
     def load_template_file(self):
         filepath, _ = QFileDialog.getOpenFileName(
             self,
             "Выберите файл раздатки",
             "",
-            "Изображения и PDF (*.pdf *.png *.jpg *.jpeg);;Все файлы (*.*)"
+            "Все поддерживаемые форматы (*.pdf *.png *.jpg *.jpeg *.docx);;PDF (*.pdf);;Изображения (*.png *.jpg *.jpeg);;Word документы (*.docx);;Все файлы (*.*)"
         )
         if filepath:
             self._process_file(filepath)
 
     def _process_file(self, filepath):
-        """Общий метод загрузки и обработки файла (вызывается и из диалога, и из drag-and-drop)."""
+        ext = os.path.splitext(filepath)[1].lower()
+        if ext == ".docx":
+            self._load_from_docx(filepath)
+        else:
+            self._load_standard_file(filepath)
+
+    def _load_from_docx(self, filepath):
+        """Извлекает первое изображение из Word-документа и предлагает его обрезать."""
+        try:
+            images = []
+            with zipfile.ZipFile(filepath, 'r') as z:
+                for name in z.namelist():
+                    if name.startswith("word/media/") and any(
+                        name.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff']
+                    ):
+                        images.append((name, z.read(name)))
+
+            if not images:
+                QMessageBox.warning(self, "Word", "В документе не найдено изображений.")
+                return
+
+            # Берём первое изображение
+            img_name, img_data = images[0]
+
+            if len(images) > 1:
+                QMessageBox.information(
+                    self, "Word",
+                    f"В документе найдено {len(images)} изображений. Будет использовано первое."
+                )
+
+            # Загружаем как QPixmap
+            qpixmap = QPixmap()
+            QImageReader.setAllocationLimit(1024)
+            qpixmap.loadFromData(img_data)
+
+            if qpixmap.isNull():
+                QMessageBox.critical(self, "Ошибка", "Не удалось прочитать изображение из Word-файла.")
+                return
+
+            # Конвертируем в fitz.Pixmap через PIL
+            from PIL import Image as PILImage
+            pil_img = PILImage.open(io.BytesIO(img_data)).convert("RGB")
+            png_buf = io.BytesIO()
+            pil_img.save(png_buf, format="PNG")
+
+            import fitz
+            pix = fitz.Pixmap(png_buf.getvalue())
+            self.pdf_processor.template_pix = pix
+            self.pdf_processor.template_width = pix.width
+            self.pdf_processor.template_height = pix.height
+
+            # Предлагаем обрезку
+            dialog = ImageCropDialog(self, qpixmap)
+            if dialog.exec():
+                crop_rect = dialog.get_crop_rect()
+                if crop_rect:
+                    self.pdf_processor.crop_template(crop_rect)
+
+            filename = os.path.basename(filepath)
+            self.file_status_label.setText(f"📄 {filename}")
+            self.file_status_label.setStyleSheet("color: #10B981;")
+            self.update_preview()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось открыть Word-файл:\n{e}")
+
+    def _load_standard_file(self, filepath):
         success, msg = self.pdf_processor.load_template(filepath)
         if success:
-            # Предлагаем обрезку для любого загруженного файла (картинки и PDF)
             from PIL import Image
-            import io
             pix = self.pdf_processor.template_pix
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            
+
             img_bytes = io.BytesIO()
             img.save(img_bytes, format='PNG')
-            
+
             qpixmap = QPixmap()
-            QImageReader.setAllocationLimit(1024) # 1024 MB limit
+            QImageReader.setAllocationLimit(1024)
             qpixmap.loadFromData(img_bytes.getvalue())
-            
+
             if not qpixmap.isNull():
                 dialog = ImageCropDialog(self, qpixmap)
                 if dialog.exec():
@@ -324,13 +493,14 @@ class MainWindow(QMainWindow):
                         self.pdf_processor.crop_template(crop_rect)
 
             filename = os.path.basename(filepath)
-            self.file_status_label.setText(filename)
-            self.file_status_label.setStyleSheet("color: #10B981;")  # Зеленый
+            self.file_status_label.setText(f"📄 {filename}")
+            self.file_status_label.setStyleSheet("color: #10B981;")
             self.update_preview()
         else:
             QMessageBox.critical(self, "Ошибка", msg)
 
-    # --- Drag-and-drop ---
+    # ── DRAG-AND-DROP ──────────────────────────────────────────────
+
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
@@ -342,12 +512,7 @@ class MainWindow(QMainWindow):
             if filepath:
                 self._process_file(filepath)
 
-    # --- Пустой ученик ---
-    def add_empty_student(self):
-        """Добавляет ученика с пустым именем (пустое поле для подписи от руки)."""
-        self.roster_manager.add_empty_student()
-        self.refresh_student_list()
-        self.update_stats()
+    # ── СПИСОК КЛАССА ─────────────────────────────────────────────
 
     def edit_roster(self):
         dialog = RosterEditDialog(self, self.roster_manager.get_all_students())
@@ -361,24 +526,18 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Ошибка", msg)
 
     def refresh_student_list(self):
-        # Очистка лейаута
-        for i in reversed(range(self.scroll_layout.count())): 
+        for i in reversed(range(self.scroll_layout.count())):
             widget = self.scroll_layout.itemAt(i).widget()
             if widget is not None:
                 widget.setParent(None)
-        
         self.student_checkboxes.clear()
 
-        # Создание чекбоксов
         students = self.roster_manager.get_all_students()
         for idx, student in enumerate(students):
             display_name = student["name"] if student["name"] else "(без имени)"
             cb = QCheckBox(display_name)
             cb.setChecked(student["selected"])
-            
-            # Подключаем сигнал через лямбду, захватывая текущий индекс
             cb.toggled.connect(lambda state, i=idx: self.on_student_toggled(i, state))
-            
             self.scroll_layout.addWidget(cb)
             self.student_checkboxes.append(cb)
 
@@ -388,7 +547,6 @@ class MainWindow(QMainWindow):
 
     def toggle_all(self, state):
         self.roster_manager.select_all(state)
-        # Обновляем UI чекбоксов без вызова сигналов, чтобы избежать лишних пересчетов
         for cb in self.student_checkboxes:
             cb.blockSignals(True)
             cb.setChecked(state)
@@ -399,48 +557,63 @@ class MainWindow(QMainWindow):
         self.copies_per_page = value
         self.update_preview()
 
-    def update_stats(self):
-        selected_students = self.roster_manager.get_selected_students()
-        count = len(selected_students)
-        
-        if count == 0 and not self.roster_manager.get_all_students():
-            total_needed = self.spin_total_copies.value()
-        else:
-            total_needed = count
+    # ── СТАТИСТИКА И ПРЕВЬЮ ───────────────────────────────────────
 
-        hide_header = self.cb_hide_header.isChecked()
+    def _get_hide_header(self):
+        return self.print_mode == "blank"
+
+    def _get_students_for_print(self):
+        """Возвращает список учеников для печати в зависимости от режима."""
+        if self.print_mode == "roster":
+            selected = self.roster_manager.get_selected_students()
+            if not selected:
+                # Если ничего не выбрано, берём всех
+                selected = self.roster_manager.get_all_students()
+            # Если список вообще пуст — одна пустая копия
+            return [s["name"] for s in selected] if selected else [""]
+        else:
+            # Режим без шапки — нужное количество пустых
+            count = self.spin_total_copies.value()
+            return [""] * count
+
+    def update_stats(self):
+        hide_header = self._get_hide_header()
         layout_res = self.pdf_processor.calculate_layout(self.copies_per_page, hide_header)
         copies_per_page_res = layout_res[2] if layout_res[0] > 0 else 0
-        
-        pages = 0
-        if copies_per_page_res > 0:
-            pages = math.ceil(total_needed / copies_per_page_res) if total_needed > 0 else 0
-            if not self.roster_manager.get_all_students() and pages == 0:
-                 pages = 1
 
-        self.lbl_selected_count.setText(f"Выбрано учеников: {count}")
-        self.lbl_pages_needed.setText(f"Всего потребуется листов А4: {pages}")
+        students = self._get_students_for_print()
+        total_needed = len(students)
+
+        pages = 0
+        if copies_per_page_res > 0 and total_needed > 0:
+            pages = math.ceil(total_needed / copies_per_page_res)
+
+        if self.print_mode == "roster":
+            selected = self.roster_manager.get_selected_students()
+            self.lbl_selected_count.setText(f"Выбрано: {len(selected)} учеников")
+        else:
+            self.lbl_selected_count.setText(f"Раздаток: {self.spin_total_copies.value()} шт.")
+
+        self.lbl_pages_needed.setText(f"Потребуется листов А4: {pages}")
 
     def update_preview(self):
-        hide_header = self.cb_hide_header.isChecked()
+        hide_header = self._get_hide_header()
         img, copies_per_page = self.pdf_processor.generate_preview(self.copies_per_page, hide_header)
-        
+
         if img:
-            # Конвертация PIL Image в QPixmap
             img_bytes = BytesIO()
             img.save(img_bytes, format='PNG')
             pixmap = QPixmap()
             pixmap.loadFromData(img_bytes.getvalue())
-            
+
             if pixmap.width() > pixmap.height():
                 self.preview_label.setFixedSize(594, 420)
             else:
                 self.preview_label.setFixedSize(420, 594)
-            
-            # Масштабируем до размеров превью контейнера
+
             pixmap_scaled = pixmap.scaled(
-                self.preview_label.size(), 
-                Qt.AspectRatioMode.KeepAspectRatio, 
+                self.preview_label.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation
             )
             self.preview_label.setPixmap(pixmap_scaled)
@@ -448,37 +621,38 @@ class MainWindow(QMainWindow):
         else:
             self.preview_label.setPixmap(QPixmap())
             self.preview_label.setText("Загрузите файл для предпросмотра")
-            
+
         self.update_stats()
+
+    # ── СОХРАНЕНИЕ ────────────────────────────────────────────────
 
     def save_pdf(self):
         if not self.pdf_processor.template_pix:
             QMessageBox.warning(self, "Внимание", "Сначала загрузите файл раздатки.")
             return
 
-        selected_students = self.roster_manager.get_selected_students()
-        if not selected_students and not self.roster_manager.get_all_students():
-            total_needed = self.spin_total_copies.value()
-            selected_students = [""] * total_needed
-        
+        students = self._get_students_for_print()
+
         filepath, _ = QFileDialog.getSaveFileName(
             self,
             "Сохранить PDF как",
             "",
             "PDF files (*.pdf)"
         )
-        
+
         if filepath:
             self.btn_save.setEnabled(False)
             self.btn_save.setText("Сохранение...")
-            QApplication.processEvents() # Обновляем UI
-            
-            hide_header = self.cb_hide_header.isChecked()
-            success, msg = self.pdf_processor.generate_pdf(self.copies_per_page, selected_students, filepath, hide_header)
-            
+            QApplication.processEvents()
+
+            hide_header = self._get_hide_header()
+            success, msg = self.pdf_processor.generate_pdf(
+                self.copies_per_page, students, filepath, hide_header
+            )
+
             self.btn_save.setEnabled(True)
-            self.btn_save.setText("Сохранить для печати")
-            
+            self.btn_save.setText("🖨  Сохранить PDF для печати")
+
             if success:
                 QMessageBox.information(self, "Успех", msg)
             else:

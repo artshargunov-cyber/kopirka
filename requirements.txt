@@ -2,3 +2,4 @@ Pillow
 PyMuPDF
 pyinstaller
 PyQt6
+python-docx
