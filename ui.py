@@ -721,16 +721,8 @@ class MainWindow(QMainWindow):
         tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
         os.close(tmp_fd)
         
-        hide_header = False
-        students = self.roster_manager.get_selected_students()
-        
-        if self.print_mode == "blank":
-            try:
-                total_needed = int(self.total_copies_input.text())
-            except ValueError:
-                total_needed = 1
-            students = [""] * total_needed
-            hide_header = True
+        hide_header = self._get_hide_header()
+        students = self._get_students_for_print()
 
         if is_test:
             students = students[:self.copies_per_page]
