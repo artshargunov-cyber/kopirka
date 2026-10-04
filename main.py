@@ -8,43 +8,6 @@ from utils import get_resource_path, VERSION
 from updater import check_for_update, download_and_run_installer
 
 
-def _show_update_dialog(window, latest_ver, download_url):
-    """Показывает диалог обновления в главном потоке Qt."""
-    msg = QMessageBox(window)
-    msg.setWindowTitle("Доступно обновление")
-    msg.setIcon(QMessageBox.Icon.Information)
-    msg.setText(
-        f"<b>Доступна новая версия Копирки!</b><br><br>"
-        f"Ваша версия: <b>{VERSION}</b><br>"
-        f"Новая версия: <b>{latest_ver}</b><br><br>"
-        f"Хотите обновить программу сейчас?"
-    )
-    msg.setStandardButtons(
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-    )
-    msg.setDefaultButton(QMessageBox.StandardButton.Yes)
-    msg.button(QMessageBox.StandardButton.Yes).setText("Обновить")
-    msg.button(QMessageBox.StandardButton.No).setText("Позже")
-
-    if msg.exec() == QMessageBox.StandardButton.Yes:
-        if download_url.endswith(".exe"):
-            progress = QProgressDialog("Скачивание обновления...", None, 0, 100, window)
-            progress.setWindowTitle("Обновление")
-            progress.setWindowModality(Qt.WindowModality.WindowModal)
-            progress.setMinimumDuration(0)
-            progress.setValue(0)
-
-            def on_progress(pct):
-                progress.setValue(pct)
-                QApplication.processEvents()
-
-            ok = download_and_run_installer(download_url, on_progress)
-            if not ok:
-                QMessageBox.critical(window, "Ошибка", "Не удалось скачать обновление.\nПопробуйте позже.")
-        else:
-            # Нет готового установщика — открываем страницу релиза в браузере
-            import webbrowser
-            webbrowser.open(download_url)
 
 
 def main():
@@ -90,7 +53,7 @@ _original_event = MainWindow.event if hasattr(MainWindow, 'event') else None
 
 def _patched_event(self, event):
     if isinstance(event, _UpdateEvent):
-        _show_update_dialog(self, event.version, event.url)
+        self.show_update_available(event.version, event.url)
         return True
     if _original_event:
         return _original_event(self, event)

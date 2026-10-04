@@ -121,7 +121,18 @@ class MainWindow(QMainWindow):
         
         title_layout.addWidget(info_label)
         title_layout.addStretch()
+        
+        # Кнопка обновления (скрыта по умолчанию)
+        self.btn_update = QPushButton("⬆️")
+        self.btn_update.setObjectName("UpdateBtn")
+        self.btn_update.setStyleSheet("background-color: #22c55e; color: white; border-radius: 12px; padding: 4px 10px; font-weight: bold; border: none;")
+        self.btn_update.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_update.hide()
+        self.btn_update.clicked.connect(self._on_update_clicked)
+        title_layout.addWidget(self.btn_update)
+        
         self.left_layout.addLayout(title_layout)
+
 
         # Загрузка файла
         self.btn_load_file = QPushButton("📂  Добавить файл (PDF / JPG / PNG / Word)")
@@ -777,3 +788,12 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Успех", msg)
             else:
                 QMessageBox.critical(self, "Ошибка", msg)
+
+    def show_update_available(self, version, url):
+        self.update_url = url
+        self.btn_update.setText(f"⬆️ Обновить до v{version}")
+        self.btn_update.show()
+
+    def _on_update_clicked(self):
+        import webbrowser
+        webbrowser.open(self.update_url)
