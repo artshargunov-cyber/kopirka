@@ -40,6 +40,14 @@ jobs:
           --icon "assets/icon.ico" `
           main.py
 
+    - name: Build Portable with PyInstaller
+      run: |
+        pyinstaller --noconfirm --onefile --windowed --name KopirkaPortable `
+          --add-data "assets;assets" `
+          --add-data "updater.py;." `
+          --icon "assets/icon.ico" `
+          main.py
+
     - name: Install Inno Setup
       run: |
         choco install innosetup -y --no-progress
@@ -71,8 +79,11 @@ jobs:
         # Создаём релиз (если уже существует — пропускаем)
         gh release create $tag `
           --title "Копирка v$version" `
-          --notes "## Что нового в v$version\n\nСкачайте `KopirkaSetup-$version.exe` и запустите установщик.\nСписок класса сохраняется при обновлении." `
+          --notes "## Что нового в v$version`n`n- **Установщик:** Скачайте ``KopirkaSetup-$version.exe`` для обычной установки.`n- **Портативная версия:** Скачайте ``KopirkaPortable.exe`` для запуска с флешки без установки." `
           --latest 2>$null || true
         
         # Загружаем установщик как ассет
         gh release upload $tag $installer.FullName --clobber
+        
+        # Загружаем портативную версию
+        gh release upload $tag dist/KopirkaPortable.exe --clobber

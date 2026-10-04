@@ -682,12 +682,12 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Ошибка", "Сначала выберите файл для раздатки.")
             return
 
-        printer = QPrinter()
-        dialog = QPrintDialog(printer, self)
+        self.printer = QPrinter()
+        dialog = QPrintDialog(self.printer, self)
         if dialog.exec() == QPrintDialog.DialogCode.Accepted:
             self.btn_print_test.setText("Печать...")
             QApplication.processEvents()
-            self._do_print(printer, is_test=True)
+            self._do_print(self.printer, is_test=True)
             self.btn_print_test.setText("📄  Печать 1 тестового листа")
 
     def print_all(self):
@@ -695,12 +695,12 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Ошибка", "Сначала выберите файл для раздатки.")
             return
 
-        printer = QPrinter()
-        dialog = QPrintDialog(printer, self)
+        self.printer = QPrinter()
+        dialog = QPrintDialog(self.printer, self)
         if dialog.exec() == QPrintDialog.DialogCode.Accepted:
             self.btn_print_all.setText("Печать...")
             QApplication.processEvents()
-            self._do_print(printer, is_test=False)
+            self._do_print(self.printer, is_test=False)
             self.btn_print_all.setText("🖨  Распечатать всё")
 
     def _do_print(self, printer, is_test):
