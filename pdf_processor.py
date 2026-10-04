@@ -6,7 +6,7 @@ from utils import get_resource_path
 
 class PDFProcessor:
     def __init__(self):
-        self.MARGIN = 10
+        self.MARGIN = 5
         self.A4_PORTRAIT_W = 595.276
         self.A4_PORTRAIT_H = 841.890
         

@@ -10,7 +10,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QSize
 from crop_widget import ImageCropDialog
-from PyQt6.QtGui import QPixmap, QFont, QImage, QImageReader, QIcon
+from PyQt6.QtGui import QPixmap, QFont, QImage, QImageReader, QIcon, QPainter
+from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
 from io import BytesIO
 
 from roster_manager import RosterManager
@@ -244,10 +245,22 @@ class MainWindow(QMainWindow):
         stats_layout.addWidget(self.lbl_pages_needed)
         self.left_layout.addWidget(self.stats_frame)
 
-        # Кнопка сохранения
-        self.btn_save = QPushButton("🖨  Сохранить PDF для печати")
-        self.btn_save.setObjectName("PrimaryButton")
-        self.btn_save.setMinimumHeight(48)
+        # Кнопки печати и сохранения
+        self.btn_print_test = QPushButton("📄  Печать 1 тестового листа")
+        self.btn_print_test.setObjectName("SecondaryButton")
+        self.btn_print_test.setMinimumHeight(40)
+        self.btn_print_test.clicked.connect(self.print_test_page)
+        self.left_layout.addWidget(self.btn_print_test)
+
+        self.btn_print_all = QPushButton("🖨  Распечатать всё")
+        self.btn_print_all.setObjectName("PrimaryButton")
+        self.btn_print_all.setMinimumHeight(48)
+        self.btn_print_all.clicked.connect(self.print_all)
+        self.left_layout.addWidget(self.btn_print_all)
+        
+        self.btn_save = QPushButton("💾  Сохранить в PDF")
+        self.btn_save.setObjectName("SecondaryButton")
+        self.btn_save.setMinimumHeight(40)
         self.btn_save.clicked.connect(self.save_pdf)
         self.left_layout.addWidget(self.btn_save)
 
@@ -652,6 +665,86 @@ class MainWindow(QMainWindow):
         self.update_stats()
 
     # ── СОХРАНЕНИЕ ────────────────────────────────────────────────
+
+    def print_test_page(self):
+        if not self.pdf_processor.template_pix:
+            QMessageBox.warning(self, "Ошибка", "Сначала выберите файл для раздатки.")
+            return
+
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        dialog = QPrintDialog(printer, self)
+        if dialog.exec() == QPrintDialog.DialogCode.Accepted:
+            self.btn_print_test.setText("Печать...")
+            QApplication.processEvents()
+            self._do_print(printer, is_test=True)
+            self.btn_print_test.setText("📄  Печать 1 тестового листа")
+
+    def print_all(self):
+        if not self.pdf_processor.template_pix:
+            QMessageBox.warning(self, "Ошибка", "Сначала выберите файл для раздатки.")
+            return
+
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        dialog = QPrintDialog(printer, self)
+        if dialog.exec() == QPrintDialog.DialogCode.Accepted:
+            self.btn_print_all.setText("Печать...")
+            QApplication.processEvents()
+            self._do_print(printer, is_test=False)
+            self.btn_print_all.setText("🖨  Распечатать всё")
+
+    def _do_print(self, printer, is_test):
+        import tempfile
+        import fitz
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+        os.close(tmp_fd)
+        
+        hide_header = False
+        students = self.roster_manager.get_selected_students()
+        
+        if self.print_mode == "blank":
+            try:
+                total_needed = int(self.total_copies_input.text())
+            except ValueError:
+                total_needed = 1
+            students = [""] * total_needed
+            hide_header = True
+
+        if is_test:
+            # Для тестовой страницы берем только учеников на 1 страницу
+            students = students[:self.copies_per_page]
+            if not students:
+                students = [""] * self.copies_per_page
+            
+        success, msg = self.pdf_processor.generate_pdf(
+            self.copies_per_page, students, tmp_path, hide_header
+        )
+        
+        if success:
+            try:
+                doc = fitz.open(tmp_path)
+                painter = QPainter(printer)
+                for i in range(len(doc)):
+                    if i > 0:
+                        printer.newPage()
+                    page = doc[i]
+                    # Рендерим с высоким DPI для принтера
+                    pix = page.get_pixmap(dpi=300)
+                    img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
+                    
+                    rect = printer.pageRect(QPrinter.Unit.DevicePixel)
+                    painter.drawImage(rect, img)
+                painter.end()
+                doc.close()
+                QMessageBox.information(self, "Успех", "Документ успешно отправлен на печать!")
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", f"Ошибка при печати: {e}")
+        else:
+            QMessageBox.critical(self, "Ошибка", msg)
+            
+        try:
+            os.remove(tmp_path)
+        except:
+            pass
 
     def save_pdf(self):
         if not self.pdf_processor.template_pix:
