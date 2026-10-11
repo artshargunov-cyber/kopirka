@@ -11,6 +11,7 @@ class PDFProcessor:
         self.A4_PORTRAIT_H = 841.890
         
         # Текущие размеры (меняются в зависимости от ориентации картинки)
+        self.orientation = "portrait"
         self.A4_WIDTH = self.A4_PORTRAIT_W
         self.A4_HEIGHT = self.A4_PORTRAIT_H
         
@@ -25,9 +26,11 @@ class PDFProcessor:
     def _update_page_orientation(self):
         """Определяет ориентацию листа А4 на основе размеров загруженной картинки."""
         if self.template_width > self.template_height:
+            self.orientation = "landscape"
             self.A4_WIDTH = self.A4_PORTRAIT_H  # Ландшафтная
             self.A4_HEIGHT = self.A4_PORTRAIT_W
         else:
+            self.orientation = "portrait"
             self.A4_WIDTH = self.A4_PORTRAIT_W  # Портретная
             self.A4_HEIGHT = self.A4_PORTRAIT_H
             
@@ -115,6 +118,7 @@ class PDFProcessor:
                         
         if best_config:
             cols, rows, copies, cell_w, cell_h, s, orientation = best_config
+            self.orientation = orientation
             if orientation == "portrait":
                 self.A4_WIDTH = self.A4_PORTRAIT_W
                 self.A4_HEIGHT = self.A4_PORTRAIT_H
@@ -187,7 +191,7 @@ class PDFProcessor:
                 
                 if not hide_header:
                     fontsize = max(8.0, min(12.0, image_scaled_width / 30.0))
-                    header_text = "Ученик: Иванов Иван         Оценка: _______"
+                    header_text = "Ученик: Иванов Иван         Отметка: _______"
                     y_img = self._draw_text_without_bg(page, header_text, cell_rect, fontsize)
                     img_rect = fitz.Rect(x0, y_img + 2, x0 + image_scaled_width, y_img + 2 + image_scaled_height)
                 else:
@@ -252,7 +256,7 @@ class PDFProcessor:
                     if not hide_header:
                         fontsize = max(8.0, min(12.0, image_scaled_width / 30.0))
                         name_part = f"Ученик: {student_name}" if student_name else "Фамилия, Имя: ____________"
-                        header_text = f"{name_part}         Оценка: _______"
+                        header_text = f"{name_part}         Отметка: _______"
                         
                         y_img = self._draw_text_without_bg(page, header_text, cell_rect, fontsize)
                         

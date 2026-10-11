@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QSize
 from crop_widget import ImageCropDialog
-from PyQt6.QtGui import QPixmap, QFont, QImage, QImageReader, QIcon, QPainter
+from PyQt6.QtGui import QPixmap, QFont, QImage, QImageReader, QIcon, QPainter, QPageLayout, QPageSize
 from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
 from io import BytesIO
 
@@ -677,12 +677,22 @@ class MainWindow(QMainWindow):
 
     # ── СОХРАНЕНИЕ ────────────────────────────────────────────────
 
+    def _setup_printer(self, printer):
+        hide_header = self._get_hide_header()
+        self.pdf_processor.calculate_layout(self.copies_per_page, hide_header)
+        printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+        if self.pdf_processor.A4_WIDTH > self.pdf_processor.A4_HEIGHT:
+            printer.setPageOrientation(QPageLayout.Orientation.Landscape)
+        else:
+            printer.setPageOrientation(QPageLayout.Orientation.Portrait)
+
     def print_test_page(self):
         if not self.pdf_processor.template_pix:
             QMessageBox.warning(self, "Ошибка", "Сначала выберите файл для раздатки.")
             return
 
         self.printer = QPrinter()
+        self._setup_printer(self.printer)
         dialog = QPrintDialog(self.printer, self)
         if dialog.exec() == QPrintDialog.DialogCode.Accepted:
             self.btn_print_test.setText("Печать...")
@@ -696,6 +706,7 @@ class MainWindow(QMainWindow):
             return
 
         self.printer = QPrinter()
+        self._setup_printer(self.printer)
         dialog = QPrintDialog(self.printer, self)
         if dialog.exec() == QPrintDialog.DialogCode.Accepted:
             self.btn_print_all.setText("Печать...")
@@ -717,6 +728,8 @@ class MainWindow(QMainWindow):
                 pass
                 
         write_log("--- НАЧАЛО ПЕЧАТИ ---")
+        self._setup_printer(printer)
+        write_log(f"Ориентация принтера: {printer.pageLayout().orientation().name}, формат: {printer.pageLayout().pageSize().name()}")
 
         tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
         os.close(tmp_fd)
