@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel,
     QScrollArea, QCheckBox, QFileDialog, QMessageBox, QFrame, QSizePolicy,
     QDialog, QTextEdit, QApplication, QSpinBox, QButtonGroup, QRadioButton,
-    QStackedWidget
+    QStackedWidget, QComboBox
 )
 from PyQt6.QtCore import Qt, QSize
 from crop_widget import ImageCropDialog
@@ -27,7 +27,7 @@ class RosterEditDialog(QDialog):
         self.setStyleSheet(parent.styleSheet())
 
         layout = QVBoxLayout(self)
-        
+
         info_label = QLabel("Вставьте список учеников (каждое имя с новой строки):")
         layout.addWidget(info_label)
 
@@ -58,7 +58,6 @@ class MainWindow(QMainWindow):
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
-        # Иконка в формате .ico (для Windows taskbar)
         ico_path = get_resource_path(os.path.join("assets", "icon.ico"))
         if os.path.exists(ico_path):
             self.setWindowIcon(QIcon(ico_path))
@@ -85,7 +84,7 @@ class MainWindow(QMainWindow):
 
         # ── ЛЕВАЯ ПАНЕЛЬ ──────────────────────────────────────
         self.left_panel = QFrame()
-        self.left_panel.setFixedWidth(360)
+        self.left_panel.setFixedWidth(380)
         self.left_panel.setObjectName("LeftPanel")
         self.left_layout = QVBoxLayout(self.left_panel)
         self.left_layout.setContentsMargins(20, 20, 20, 20)
@@ -97,7 +96,7 @@ class MainWindow(QMainWindow):
         self.title_label = QLabel("✂ Копирка")
         self.title_label.setObjectName("TitleLabel")
         title_layout.addWidget(self.title_label)
-        
+
         info_label = QLabel("ℹ️")
         info_label.setCursor(Qt.CursorShape.PointingHandCursor)
         info_label.setToolTip(
@@ -116,25 +115,41 @@ class MainWindow(QMainWindow):
             "чужой интеллектуальной собственности."
             "</div>"
         )
-        # Добавим небольшой отступ сверху для значка, чтобы он был по центру текста
         info_label.setStyleSheet("padding-top: 5px; font-size: 16px;")
-        
         title_layout.addWidget(info_label)
         title_layout.addStretch()
-        
+
         # Кнопка обновления (скрыта по умолчанию)
         self.btn_update = QPushButton("⬆️")
         self.btn_update.setObjectName("UpdateBtn")
-        self.btn_update.setStyleSheet("background-color: #22c55e; color: white; border-radius: 12px; padding: 4px 10px; font-weight: bold; border: none;")
+        self.btn_update.setStyleSheet(
+            "background-color: #22c55e; color: white; border-radius: 12px; "
+            "padding: 4px 10px; font-weight: bold; border: none;"
+        )
         self.btn_update.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_update.hide()
         self.btn_update.clicked.connect(self._on_update_clicked)
         title_layout.addWidget(self.btn_update)
-        
+
         self.left_layout.addLayout(title_layout)
 
+        # ── ВАРИАНТЫ ──────────────────────────────────────────
+        variants_label = QLabel("Варианты заданий:")
+        variants_label.setObjectName("SectionLabel")
+        self.left_layout.addWidget(variants_label)
 
-        # Загрузка файла
+        # Контейнер со списком вариантов
+        self.variants_container = QVBoxLayout()
+        self.variants_container.setSpacing(4)
+        self.variant_rows = []  # list of QHBoxLayout rows
+        self.left_layout.addLayout(self.variants_container)
+
+        self.btn_add_variant = QPushButton("＋  Добавить вариант")
+        self.btn_add_variant.setObjectName("SecondaryButton")
+        self.btn_add_variant.clicked.connect(self.add_variant)
+        self.left_layout.addWidget(self.btn_add_variant)
+
+        # Загрузка файла (основной вариант 1)
         self.btn_load_file = QPushButton("📂  Добавить файл (PDF / JPG / PNG / Word)")
         self.btn_load_file.clicked.connect(self.load_template_file)
         self.left_layout.addWidget(self.btn_load_file)
@@ -207,6 +222,7 @@ class MainWindow(QMainWindow):
         self.scroll_area.setWidget(self.scroll_widget)
         roster_layout.addWidget(self.scroll_area, stretch=1)
         self.student_checkboxes = []
+        self.student_variant_combos = []
 
         self.mode_stack.addWidget(roster_page)
 
@@ -268,7 +284,7 @@ class MainWindow(QMainWindow):
         self.btn_print_all.setMinimumHeight(48)
         self.btn_print_all.clicked.connect(self.print_all)
         self.left_layout.addWidget(self.btn_print_all)
-        
+
         self.btn_save = QPushButton("💾  Сохранить в PDF")
         self.btn_save.setObjectName("SecondaryButton")
         self.btn_save.setMinimumHeight(40)
@@ -301,6 +317,647 @@ class MainWindow(QMainWindow):
         self.print_mode = "roster" if btn_id == 0 else "blank"
         self.mode_stack.setCurrentIndex(btn_id)
         self.update_preview()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Варианты
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _variant_labels(self):
+        """Возвращает список строк для ComboBox вариантов."""
+        count = self.pdf_processor.variant_count()
+        return [f"Вариант {i + 1}" for i in range(count)]
+
+    def _rebuild_variant_rows(self):
+        """Перерисовывает строки вариантов в левой панели."""
+        # Удаляем старые виджеты
+        while self.variants_container.count():
+            item = self.variants_container.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            elif item.layout():
+                # Удаляем дочерние виджеты вложенного layout
+                while item.layout().count():
+                    child = item.layout().takeAt(0)
+                    if child.widget():
+                        child.widget().deleteLater()
+
+        self.variant_rows = []
+        count = self.pdf_processor.variant_count()
+
+        for i in range(count):
+            row_widget = QFrame()
+            row_widget.setObjectName("VariantRow")
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(6, 4, 6, 4)
+            row_layout.setSpacing(6)
+
+            # Метка варианта
+            lbl = QLabel(f"Вариант {i + 1}:")
+            lbl.setFixedWidth(70)
+            row_layout.addWidget(lbl)
+
+            # Кнопка изменить файл
+            btn_change = QPushButton("📂 Изменить файл")
+            btn_change.setObjectName("SecondaryButton")
+            btn_change.clicked.connect(lambda checked, idx=i: self._change_variant_file(idx))
+            row_layout.addWidget(btn_change, stretch=1)
+
+            # Кнопка удалить (только если вариантов > 1)
+            if count > 1:
+                btn_del = QPushButton("✕")
+                btn_del.setFixedWidth(28)
+                btn_del.setToolTip(f"Удалить вариант {i + 1}")
+                btn_del.setObjectName("DeleteBtn")
+                btn_del.clicked.connect(lambda checked, idx=i: self._remove_variant(idx))
+                row_layout.addWidget(btn_del)
+
+            self.variants_container.addWidget(row_widget)
+            self.variant_rows.append(row_widget)
+
+        # Обновляем ComboBox-ы в списке учеников
+        self._refresh_variant_combos()
+
+    def add_variant(self):
+        """Загружает новый файл и добавляет его как отдельный вариант."""
+        filepath, _ = QFileDialog.getOpenFileName(
+            self,
+            "Выберите файл для нового варианта",
+            "",
+            "Все поддерживаемые форматы (*.pdf *.png *.jpg *.jpeg *.docx);;PDF (*.pdf);;"
+            "Изображения (*.png *.jpg *.jpeg);;Word документы (*.docx);;Все файлы (*.*)"
+        )
+        if not filepath:
+            return
+
+        pix, width, height = self._load_file_to_pix(filepath)
+        if pix is None:
+            return
+
+        # Предлагаем обрезку
+        qpixmap = self._pix_to_qpixmap(pix)
+        if qpixmap and not qpixmap.isNull():
+            dialog = ImageCropDialog(self, qpixmap)
+            if dialog.exec():
+                crop_rect = dialog.get_crop_rect()
+                if crop_rect:
+                    # Добавляем временный вариант и сразу обрезаем
+                    idx = self.pdf_processor.add_variant(pix, width, height)
+                    self.pdf_processor.crop_template(crop_rect, variant_idx=idx)
+                else:
+                    self.pdf_processor.add_variant(pix, width, height)
+            else:
+                self.pdf_processor.add_variant(pix, width, height)
+        else:
+            self.pdf_processor.add_variant(pix, width, height)
+
+        self._rebuild_variant_rows()
+        self.update_preview()
+
+    def _change_variant_file(self, variant_idx):
+        """Заменяет файл существующего варианта."""
+        filepath, _ = QFileDialog.getOpenFileName(
+            self,
+            f"Выберите файл для варианта {variant_idx + 1}",
+            "",
+            "Все поддерживаемые форматы (*.pdf *.png *.jpg *.jpeg *.docx);;PDF (*.pdf);;"
+            "Изображения (*.png *.jpg *.jpeg);;Word документы (*.docx);;Все файлы (*.*)"
+        )
+        if not filepath:
+            return
+
+        pix, width, height = self._load_file_to_pix(filepath)
+        if pix is None:
+            return
+
+        qpixmap = self._pix_to_qpixmap(pix)
+        crop_rect = None
+        if qpixmap and not qpixmap.isNull():
+            dialog = ImageCropDialog(self, qpixmap)
+            if dialog.exec():
+                crop_rect = dialog.get_crop_rect()
+
+        self.pdf_processor.set_variant(variant_idx, pix, width, height)
+        if crop_rect:
+            self.pdf_processor.crop_template(crop_rect, variant_idx=variant_idx)
+
+        self._rebuild_variant_rows()
+        self.update_preview()
+
+    def _remove_variant(self, variant_idx):
+        """Удаляет вариант. Обновляет индексы вариантов у учеников."""
+        self.pdf_processor.remove_variant(variant_idx)
+
+        # Корректируем индексы вариантов у учеников
+        count = self.pdf_processor.variant_count()
+        students = self.roster_manager.get_all_students()
+        for s in students:
+            if s.get("variant", 0) >= count:
+                s["variant"] = count - 1
+        self.roster_manager.save_cache()
+
+        self._rebuild_variant_rows()
+        self.refresh_student_list()
+        self.update_preview()
+
+    def _refresh_variant_combos(self):
+        """Обновляет варианты в уже отрисованных ComboBox-ах."""
+        labels = self._variant_labels()
+        for i, (cb, combo) in enumerate(zip(self.student_checkboxes, self.student_variant_combos)):
+            combo.blockSignals(True)
+            current = combo.currentIndex()
+            combo.clear()
+            combo.addItems(labels)
+            # Восстанавливаем выбранный вариант из модели
+            student_variant = self.roster_manager.get_all_students()[i].get("variant", 0)
+            combo.setCurrentIndex(min(student_variant, len(labels) - 1))
+            combo.setVisible(len(labels) > 1)
+            combo.blockSignals(False)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Загрузка файлов
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _pix_to_qpixmap(self, pix):
+        """Конвертирует fitz.Pixmap в QPixmap."""
+        from PIL import Image as PILImage
+        img = PILImage.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        qpixmap = QPixmap()
+        QImageReader.setAllocationLimit(1024)
+        qpixmap.loadFromData(buf.getvalue())
+        return qpixmap
+
+    def _load_file_to_pix(self, filepath):
+        """
+        Загружает файл и возвращает (fitz.Pixmap, width, height) или (None, 0, 0) при ошибке.
+        Не изменяет состояние PDFProcessor.
+        """
+        import fitz
+        ext = os.path.splitext(filepath)[1].lower()
+        try:
+            if ext == ".docx":
+                return self._load_docx_to_pix(filepath)
+            else:
+                doc = fitz.open(filepath)
+                page = doc[0]
+                mat = fitz.Matrix(2, 2)
+                pix = page.get_pixmap(matrix=mat)
+                width = page.rect.width
+                height = page.rect.height
+                doc.close()
+                return pix, width, height
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось загрузить файл:\n{e}")
+            return None, 0, 0
+
+    def _load_docx_to_pix(self, filepath):
+        """Извлекает первое изображение из DOCX и возвращает (fitz.Pixmap, w, h)."""
+        import fitz
+        from PIL import Image as PILImage
+        try:
+            images = []
+            with zipfile.ZipFile(filepath, "r") as z:
+                for name in z.namelist():
+                    if name.startswith("word/media/") and any(
+                        name.lower().endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tiff"]
+                    ):
+                        images.append((name, z.read(name)))
+
+            if not images:
+                QMessageBox.warning(self, "Word", "В документе не найдено изображений.")
+                return None, 0, 0
+
+            img_name, img_data = images[0]
+            if len(images) > 1:
+                QMessageBox.information(
+                    self, "Word",
+                    f"В документе найдено {len(images)} изображений. Будет использовано первое."
+                )
+
+            pil_img = PILImage.open(io.BytesIO(img_data)).convert("RGB")
+            png_buf = io.BytesIO()
+            pil_img.save(png_buf, format="PNG")
+
+            pix = fitz.Pixmap(png_buf.getvalue())
+            return pix, pix.width, pix.height
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось открыть Word-файл:\n{e}")
+            return None, 0, 0
+
+    def load_template_file(self):
+        filepath, _ = QFileDialog.getOpenFileName(
+            self,
+            "Выберите файл раздатки",
+            "",
+            "Все поддерживаемые форматы (*.pdf *.png *.jpg *.jpeg *.docx);;PDF (*.pdf);;"
+            "Изображения (*.png *.jpg *.jpeg);;Word документы (*.docx);;Все файлы (*.*)"
+        )
+        if filepath:
+            self._process_file(filepath)
+
+    def _process_file(self, filepath):
+        """Загружает файл как вариант 0 (основной шаблон). Если вариантов нет — создаёт первый."""
+        ext = os.path.splitext(filepath)[1].lower()
+        if ext == ".docx":
+            self._load_from_docx_as_variant0(filepath)
+        else:
+            self._load_standard_file_as_variant0(filepath)
+
+    def _load_standard_file_as_variant0(self, filepath):
+        """Загружает обычный файл как вариант 0."""
+        pix, width, height = self._load_file_to_pix(filepath)
+        if pix is None:
+            return
+
+        # Обрезка
+        qpixmap = self._pix_to_qpixmap(pix)
+        crop_rect = None
+        if not qpixmap.isNull():
+            dialog = ImageCropDialog(self, qpixmap)
+            if dialog.exec():
+                crop_rect = dialog.get_crop_rect()
+
+        # Инициализируем вариант 0 через load_template (для совместимости)
+        success, msg = self.pdf_processor.load_template(filepath)
+        if not success:
+            QMessageBox.critical(self, "Ошибка", msg)
+            return
+
+        if crop_rect:
+            self.pdf_processor.crop_template(crop_rect, variant_idx=0)
+
+        filename = os.path.basename(filepath)
+        self.file_status_label.setText(f"📄 {filename}")
+        self.file_status_label.setStyleSheet("color: #10B981;")
+        self._rebuild_variant_rows()
+        self.update_preview()
+
+    def _load_from_docx_as_variant0(self, filepath):
+        """Загружает DOCX как вариант 0."""
+        import fitz
+        pix, width, height = self._load_docx_to_pix(filepath)
+        if pix is None:
+            return
+
+        qpixmap = self._pix_to_qpixmap(pix)
+        crop_rect = None
+        if not qpixmap.isNull():
+            dialog = ImageCropDialog(self, qpixmap)
+            if dialog.exec():
+                crop_rect = dialog.get_crop_rect()
+
+        # Обновляем вариант 0
+        if not self.pdf_processor.variants:
+            self.pdf_processor.add_variant(pix, width, height)
+        else:
+            self.pdf_processor.set_variant(0, pix, width, height)
+
+        if crop_rect:
+            self.pdf_processor.crop_template(crop_rect, variant_idx=0)
+
+        filename = os.path.basename(filepath)
+        self.file_status_label.setText(f"📄 {filename}")
+        self.file_status_label.setStyleSheet("color: #10B981;")
+        self._rebuild_variant_rows()
+        self.update_preview()
+
+    # Drag-and-drop
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        if urls:
+            filepath = urls[0].toLocalFile()
+            if filepath:
+                self._process_file(filepath)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Список класса
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def edit_roster(self):
+        dialog = RosterEditDialog(self, self.roster_manager.get_all_students())
+        if dialog.exec():
+            text = dialog.get_text()
+            success, msg = self.roster_manager.update_from_text(text)
+            if success:
+                self.refresh_student_list()
+                self.update_stats()
+            else:
+                QMessageBox.critical(self, "Ошибка", msg)
+
+    def refresh_student_list(self):
+        for i in reversed(range(self.scroll_layout.count())):
+            widget = self.scroll_layout.itemAt(i).widget()
+            if widget is not None:
+                widget.setParent(None)
+        self.student_checkboxes.clear()
+        self.student_variant_combos.clear()
+
+        students = self.roster_manager.get_all_students()
+        variant_labels = self._variant_labels()
+        show_variants = len(variant_labels) > 1
+
+        for idx, student in enumerate(students):
+            display_name = student["name"] if student["name"] else "(без имени)"
+
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(6)
+
+            cb = QCheckBox(display_name)
+            cb.setChecked(student["selected"])
+            cb.toggled.connect(lambda state, i=idx: self.on_student_toggled(i, state))
+            row_layout.addWidget(cb, stretch=1)
+
+            # ComboBox для выбора варианта
+            combo = QComboBox()
+            combo.addItems(variant_labels)
+            combo.setCurrentIndex(min(student.get("variant", 0), len(variant_labels) - 1))
+            combo.setFixedWidth(90)
+            combo.setVisible(show_variants)
+            combo.currentIndexChanged.connect(lambda vi, i=idx: self.on_student_variant_changed(i, vi))
+            row_layout.addWidget(combo)
+
+            self.scroll_layout.addWidget(row_widget)
+            self.student_checkboxes.append(cb)
+            self.student_variant_combos.append(combo)
+
+    def on_student_toggled(self, index, state):
+        self.roster_manager.set_student_selection(index, state)
+        self.update_stats()
+
+    def on_student_variant_changed(self, index, variant_idx):
+        self.roster_manager.set_student_variant(index, variant_idx)
+
+    def toggle_all(self, state):
+        self.roster_manager.select_all(state)
+        for cb in self.student_checkboxes:
+            cb.blockSignals(True)
+            cb.setChecked(state)
+            cb.blockSignals(False)
+        self.update_stats()
+
+    def on_copies_change(self, value):
+        self.copies_per_page = value
+        self.update_preview()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Статистика и превью
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _get_hide_header(self):
+        return self.print_mode == "blank"
+
+    def _get_students_for_print(self):
+        """Возвращает список (name, variant_idx) для печати."""
+        if self.print_mode == "roster":
+            selected = self.roster_manager.get_selected_students()  # [(name, variant), ...]
+            if not selected:
+                # Если ничего не выбрано — берём всех
+                selected = [(s["name"], s.get("variant", 0))
+                            for s in self.roster_manager.get_all_students()]
+            return selected if selected else [("", 0)]
+        else:
+            count = self.spin_total_copies.value()
+            return [("", 0)] * count
+
+    def update_stats(self):
+        hide_header = self._get_hide_header()
+        layout_res = self.pdf_processor.calculate_layout(self.copies_per_page, hide_header)
+        copies_per_page_res = layout_res[2] if layout_res[0] > 0 else 0
+
+        students = self._get_students_for_print()
+        total_needed = len(students)
+
+        pages = 0
+        if copies_per_page_res > 0 and total_needed > 0:
+            pages = math.ceil(total_needed / copies_per_page_res)
+
+        if self.print_mode == "roster":
+            selected = self.roster_manager.get_selected_students()
+            self.lbl_selected_count.setText(f"Выбрано: {len(selected)} учеников")
+        else:
+            self.lbl_selected_count.setText(f"Раздаток: {self.spin_total_copies.value()} шт.")
+
+        self.lbl_pages_needed.setText(f"Потребуется листов А4: {pages}")
+
+    def update_preview(self):
+        hide_header = self._get_hide_header()
+        img, copies_per_page = self.pdf_processor.generate_preview(self.copies_per_page, hide_header)
+
+        if img:
+            img_bytes = BytesIO()
+            img.save(img_bytes, format='PNG')
+            pixmap = QPixmap()
+            pixmap.loadFromData(img_bytes.getvalue())
+
+            if pixmap.width() > pixmap.height():
+                self.preview_label.setFixedSize(594, 420)
+            else:
+                self.preview_label.setFixedSize(420, 594)
+
+            pixmap_scaled = pixmap.scaled(
+                self.preview_label.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.preview_label.setPixmap(pixmap_scaled)
+            self.preview_label.setText("")
+        else:
+            self.preview_label.setPixmap(QPixmap())
+            self.preview_label.setText("Загрузите файл для предпросмотра")
+
+        self.update_stats()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Печать и сохранение
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _setup_printer(self, printer):
+        hide_header = self._get_hide_header()
+        self.pdf_processor.calculate_layout(self.copies_per_page, hide_header)
+        printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+        if self.pdf_processor.A4_WIDTH > self.pdf_processor.A4_HEIGHT:
+            printer.setPageOrientation(QPageLayout.Orientation.Landscape)
+        else:
+            printer.setPageOrientation(QPageLayout.Orientation.Portrait)
+
+    def print_test_page(self):
+        if not self.pdf_processor.template_pix:
+            QMessageBox.warning(self, "Ошибка", "Сначала выберите файл для раздатки.")
+            return
+
+        self.printer = QPrinter()
+        self._setup_printer(self.printer)
+        dialog = QPrintDialog(self.printer, self)
+        if dialog.exec() == QPrintDialog.DialogCode.Accepted:
+            self.btn_print_test.setText("Печать...")
+            QApplication.processEvents()
+            self._do_print(self.printer, is_test=True)
+            self.btn_print_test.setText("📄  Печать 1 тестового листа")
+
+    def print_all(self):
+        if not self.pdf_processor.template_pix:
+            QMessageBox.warning(self, "Ошибка", "Сначала выберите файл для раздатки.")
+            return
+
+        self.printer = QPrinter()
+        self._setup_printer(self.printer)
+        dialog = QPrintDialog(self.printer, self)
+        if dialog.exec() == QPrintDialog.DialogCode.Accepted:
+            self.btn_print_all.setText("Печать...")
+            QApplication.processEvents()
+            self._do_print(self.printer, is_test=False)
+            self.btn_print_all.setText("🖨  Распечатать всё")
+
+    def _do_print(self, printer, is_test):
+        import tempfile
+        import fitz
+        from datetime import datetime
+
+        log_path = os.path.join(os.path.expanduser("~"), "Desktop", "kopirka_print_log.txt")
+
+        def write_log(msg):
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(f"[{datetime.now()}] {msg}\n")
+            except Exception:
+                pass
+
+        write_log("--- НАЧАЛО ПЕЧАТИ ---")
+        self._setup_printer(printer)
+        write_log(
+            f"Ориентация принтера: {printer.pageLayout().orientation().name}, "
+            f"формат: {printer.pageLayout().pageSize().name()}"
+        )
+
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+        os.close(tmp_fd)
+
+        hide_header = self._get_hide_header()
+        students = self._get_students_for_print()
+
+        if is_test:
+            students = students[: self.copies_per_page]
+            if not students:
+                students = [("", 0)] * self.copies_per_page
+
+        write_log("Генерация PDF...")
+        success, msg = self.pdf_processor.generate_pdf(
+            self.copies_per_page, students, tmp_path, hide_header
+        )
+
+        if success:
+            try:
+                write_log("Открытие PDF через fitz...")
+                doc = fitz.open(tmp_path)
+
+                write_log("Создание QPainter...")
+                painter = QPainter()
+                write_log(f"painter.begin()... (Printer name: {printer.printerName()})")
+
+                if not painter.begin(printer):
+                    write_log("Ошибка: painter.begin(printer) вернул False!")
+                    raise RuntimeError("Не удалось инициализировать QPainter для выбранного принтера.")
+
+                write_log("painter.begin() успешен!")
+
+                for i in range(len(doc)):
+                    write_log(f"Обработка страницы {i + 1}...")
+                    if i > 0:
+                        printer.newPage()
+
+                    page = doc[i]
+                    pix = page.get_pixmap(dpi=200)
+                    img = QImage.fromData(pix.tobytes("png"))
+
+                    if img.isNull():
+                        raise RuntimeError(f"Ошибка формирования картинки для страницы {i + 1}.")
+
+                    rect = printer.pageRect(QPrinter.Unit.DevicePixel)
+                    from PyQt6.QtCore import QRectF
+
+                    img_size = img.size()
+                    w_ratio = rect.width() / img_size.width()
+                    h_ratio = rect.height() / img_size.height()
+                    scale = min(w_ratio, h_ratio)
+
+                    new_w = img_size.width() * scale
+                    new_h = img_size.height() * scale
+                    x = rect.x() + (rect.width() - new_w) / 2.0
+                    y = rect.y() + (rect.height() - new_h) / 2.0
+
+                    target_rect = QRectF(x, y, new_w, new_h)
+                    painter.drawImage(target_rect, img)
+                    write_log(f"Страница {i + 1} отрисована!")
+
+                painter.end()
+                doc.close()
+                QMessageBox.information(self, "Успех", "Документ успешно отправлен на печать!")
+            except Exception as e:
+                import traceback
+
+                error_trace = traceback.format_exc()
+                write_log(f"PYTHON EXCEPTION:\n{error_trace}")
+                QMessageBox.critical(
+                    self, "Ошибка", f"Ошибка при печати:\n{e}\n\nЛог сохранен на рабочем столе"
+                )
+        else:
+            write_log(f"generate_pdf вернул ошибку: {msg}")
+            QMessageBox.critical(self, "Ошибка", msg)
+
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+        write_log("--- КОНЕЦ ПЕЧАТИ ---")
+
+    def save_pdf(self):
+        if not self.pdf_processor.template_pix:
+            QMessageBox.warning(self, "Внимание", "Сначала загрузите файл раздатки.")
+            return
+
+        students = self._get_students_for_print()
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "Сохранить PDF как", "", "PDF files (*.pdf)"
+        )
+
+        if filepath:
+            self.btn_save.setEnabled(False)
+            self.btn_save.setText("Сохранение...")
+            QApplication.processEvents()
+
+            hide_header = self._get_hide_header()
+            success, msg = self.pdf_processor.generate_pdf(
+                self.copies_per_page, students, filepath, hide_header
+            )
+
+            self.btn_save.setEnabled(True)
+            self.btn_save.setText("💾  Сохранить в PDF")
+
+            if success:
+                QMessageBox.information(self, "Успех", msg)
+            else:
+                QMessageBox.critical(self, "Ошибка", msg)
+
+    def show_update_available(self, version, url):
+        self.update_url = url
+        self.btn_update.setText(f"⬆️ Обновить до v{version}")
+        self.btn_update.show()
+
+    def _on_update_clicked(self):
+        import webbrowser
+        webbrowser.open(self.update_url)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Стили
+    # ─────────────────────────────────────────────────────────────────────────
 
     def apply_stylesheet(self):
         self.setStyleSheet("""
@@ -366,6 +1023,22 @@ class MainWindow(QMainWindow):
             #PrimaryButton:hover {
                 background-color: #1D4ED8;
             }
+            #DeleteBtn {
+                background-color: transparent;
+                border: 1px solid #FCA5A5;
+                color: #EF4444;
+                border-radius: 4px;
+                padding: 2px;
+                font-weight: bold;
+            }
+            #DeleteBtn:hover {
+                background-color: #FEE2E2;
+            }
+            #VariantRow {
+                background-color: #F9FAFB;
+                border: 1px solid #E5E7EB;
+                border-radius: 6px;
+            }
             QScrollArea, QTextEdit {
                 border: 1px solid #E5E7EB;
                 border-radius: 6px;
@@ -407,12 +1080,15 @@ class MainWindow(QMainWindow):
                 color: #1D4ED8;
                 font-weight: bold;
             }
-            QSpinBox {
+            QSpinBox, QComboBox {
                 border: 1px solid #D1D5DB;
                 border-radius: 6px;
                 padding: 6px 8px;
                 font-size: 13px;
                 background: white;
+            }
+            QComboBox::drop-down {
+                border: none;
             }
             #StatsFrame {
                 background-color: #F0F9FF;
@@ -443,421 +1119,4 @@ class MainWindow(QMainWindow):
             }
         """)
 
-    # ── ЗАГРУЗКА ФАЙЛОВ ────────────────────────────────────────────
 
-    def load_template_file(self):
-        filepath, _ = QFileDialog.getOpenFileName(
-            self,
-            "Выберите файл раздатки",
-            "",
-            "Все поддерживаемые форматы (*.pdf *.png *.jpg *.jpeg *.docx);;PDF (*.pdf);;Изображения (*.png *.jpg *.jpeg);;Word документы (*.docx);;Все файлы (*.*)"
-        )
-        if filepath:
-            self._process_file(filepath)
-
-    def _process_file(self, filepath):
-        ext = os.path.splitext(filepath)[1].lower()
-        if ext == ".docx":
-            self._load_from_docx(filepath)
-        else:
-            self._load_standard_file(filepath)
-
-    def _load_from_docx(self, filepath):
-        """Извлекает первое изображение из Word-документа и предлагает его обрезать."""
-        try:
-            images = []
-            with zipfile.ZipFile(filepath, 'r') as z:
-                for name in z.namelist():
-                    if name.startswith("word/media/") and any(
-                        name.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff']
-                    ):
-                        images.append((name, z.read(name)))
-
-            if not images:
-                QMessageBox.warning(self, "Word", "В документе не найдено изображений.")
-                return
-
-            # Берём первое изображение
-            img_name, img_data = images[0]
-
-            if len(images) > 1:
-                QMessageBox.information(
-                    self, "Word",
-                    f"В документе найдено {len(images)} изображений. Будет использовано первое."
-                )
-
-            # Загружаем как QPixmap
-            qpixmap = QPixmap()
-            QImageReader.setAllocationLimit(1024)
-            qpixmap.loadFromData(img_data)
-
-            if qpixmap.isNull():
-                QMessageBox.critical(self, "Ошибка", "Не удалось прочитать изображение из Word-файла.")
-                return
-
-            # Конвертируем в fitz.Pixmap через PIL
-            from PIL import Image as PILImage
-            pil_img = PILImage.open(io.BytesIO(img_data)).convert("RGB")
-            png_buf = io.BytesIO()
-            pil_img.save(png_buf, format="PNG")
-
-            import fitz
-            pix = fitz.Pixmap(png_buf.getvalue())
-            self.pdf_processor.template_pix = pix
-            self.pdf_processor.template_width = pix.width
-            self.pdf_processor.template_height = pix.height
-
-            # Предлагаем обрезку
-            dialog = ImageCropDialog(self, qpixmap)
-            if dialog.exec():
-                crop_rect = dialog.get_crop_rect()
-                if crop_rect:
-                    self.pdf_processor.crop_template(crop_rect)
-
-            filename = os.path.basename(filepath)
-            self.file_status_label.setText(f"📄 {filename}")
-            self.file_status_label.setStyleSheet("color: #10B981;")
-            self.update_preview()
-
-        except Exception as e:
-            QMessageBox.critical(self, "Ошибка", f"Не удалось открыть Word-файл:\n{e}")
-
-    def _load_standard_file(self, filepath):
-        success, msg = self.pdf_processor.load_template(filepath)
-        if success:
-            from PIL import Image
-            pix = self.pdf_processor.template_pix
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-
-            img_bytes = io.BytesIO()
-            img.save(img_bytes, format='PNG')
-
-            qpixmap = QPixmap()
-            QImageReader.setAllocationLimit(1024)
-            qpixmap.loadFromData(img_bytes.getvalue())
-
-            if not qpixmap.isNull():
-                dialog = ImageCropDialog(self, qpixmap)
-                if dialog.exec():
-                    crop_rect = dialog.get_crop_rect()
-                    if crop_rect:
-                        self.pdf_processor.crop_template(crop_rect)
-
-            filename = os.path.basename(filepath)
-            self.file_status_label.setText(f"📄 {filename}")
-            self.file_status_label.setStyleSheet("color: #10B981;")
-            self.update_preview()
-        else:
-            QMessageBox.critical(self, "Ошибка", msg)
-
-    # ── DRAG-AND-DROP ──────────────────────────────────────────────
-
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-
-    def dropEvent(self, event):
-        urls = event.mimeData().urls()
-        if urls:
-            filepath = urls[0].toLocalFile()
-            if filepath:
-                self._process_file(filepath)
-
-    # ── СПИСОК КЛАССА ─────────────────────────────────────────────
-
-    def edit_roster(self):
-        dialog = RosterEditDialog(self, self.roster_manager.get_all_students())
-        if dialog.exec():
-            text = dialog.get_text()
-            success, msg = self.roster_manager.update_from_text(text)
-            if success:
-                self.refresh_student_list()
-                self.update_stats()
-            else:
-                QMessageBox.critical(self, "Ошибка", msg)
-
-    def refresh_student_list(self):
-        for i in reversed(range(self.scroll_layout.count())):
-            widget = self.scroll_layout.itemAt(i).widget()
-            if widget is not None:
-                widget.setParent(None)
-        self.student_checkboxes.clear()
-
-        students = self.roster_manager.get_all_students()
-        for idx, student in enumerate(students):
-            display_name = student["name"] if student["name"] else "(без имени)"
-            cb = QCheckBox(display_name)
-            cb.setChecked(student["selected"])
-            cb.toggled.connect(lambda state, i=idx: self.on_student_toggled(i, state))
-            self.scroll_layout.addWidget(cb)
-            self.student_checkboxes.append(cb)
-
-    def on_student_toggled(self, index, state):
-        self.roster_manager.set_student_selection(index, state)
-        self.update_stats()
-
-    def toggle_all(self, state):
-        self.roster_manager.select_all(state)
-        for cb in self.student_checkboxes:
-            cb.blockSignals(True)
-            cb.setChecked(state)
-            cb.blockSignals(False)
-        self.update_stats()
-
-    def on_copies_change(self, value):
-        self.copies_per_page = value
-        self.update_preview()
-
-    # ── СТАТИСТИКА И ПРЕВЬЮ ───────────────────────────────────────
-
-    def _get_hide_header(self):
-        return self.print_mode == "blank"
-
-    def _get_students_for_print(self):
-        """Возвращает список учеников для печати в зависимости от режима."""
-        if self.print_mode == "roster":
-            selected = self.roster_manager.get_selected_students()
-            if not selected:
-                # Если ничего не выбрано, берём всех
-                selected = [s["name"] for s in self.roster_manager.get_all_students()]
-            # Если список вообще пуст — одна пустая копия
-            return selected if selected else [""]
-        else:
-            # Режим без шапки — нужное количество пустых
-            count = self.spin_total_copies.value()
-            return [""] * count
-
-    def update_stats(self):
-        hide_header = self._get_hide_header()
-        layout_res = self.pdf_processor.calculate_layout(self.copies_per_page, hide_header)
-        copies_per_page_res = layout_res[2] if layout_res[0] > 0 else 0
-
-        students = self._get_students_for_print()
-        total_needed = len(students)
-
-        pages = 0
-        if copies_per_page_res > 0 and total_needed > 0:
-            pages = math.ceil(total_needed / copies_per_page_res)
-
-        if self.print_mode == "roster":
-            selected = self.roster_manager.get_selected_students()
-            self.lbl_selected_count.setText(f"Выбрано: {len(selected)} учеников")
-        else:
-            self.lbl_selected_count.setText(f"Раздаток: {self.spin_total_copies.value()} шт.")
-
-        self.lbl_pages_needed.setText(f"Потребуется листов А4: {pages}")
-
-    def update_preview(self):
-        hide_header = self._get_hide_header()
-        img, copies_per_page = self.pdf_processor.generate_preview(self.copies_per_page, hide_header)
-
-        if img:
-            img_bytes = BytesIO()
-            img.save(img_bytes, format='PNG')
-            pixmap = QPixmap()
-            pixmap.loadFromData(img_bytes.getvalue())
-
-            if pixmap.width() > pixmap.height():
-                self.preview_label.setFixedSize(594, 420)
-            else:
-                self.preview_label.setFixedSize(420, 594)
-
-            pixmap_scaled = pixmap.scaled(
-                self.preview_label.size(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            )
-            self.preview_label.setPixmap(pixmap_scaled)
-            self.preview_label.setText("")
-        else:
-            self.preview_label.setPixmap(QPixmap())
-            self.preview_label.setText("Загрузите файл для предпросмотра")
-
-        self.update_stats()
-
-    # ── СОХРАНЕНИЕ ────────────────────────────────────────────────
-
-    def _setup_printer(self, printer):
-        hide_header = self._get_hide_header()
-        self.pdf_processor.calculate_layout(self.copies_per_page, hide_header)
-        printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
-        if self.pdf_processor.A4_WIDTH > self.pdf_processor.A4_HEIGHT:
-            printer.setPageOrientation(QPageLayout.Orientation.Landscape)
-        else:
-            printer.setPageOrientation(QPageLayout.Orientation.Portrait)
-
-    def print_test_page(self):
-        if not self.pdf_processor.template_pix:
-            QMessageBox.warning(self, "Ошибка", "Сначала выберите файл для раздатки.")
-            return
-
-        self.printer = QPrinter()
-        self._setup_printer(self.printer)
-        dialog = QPrintDialog(self.printer, self)
-        if dialog.exec() == QPrintDialog.DialogCode.Accepted:
-            self.btn_print_test.setText("Печать...")
-            QApplication.processEvents()
-            self._do_print(self.printer, is_test=True)
-            self.btn_print_test.setText("📄  Печать 1 тестового листа")
-
-    def print_all(self):
-        if not self.pdf_processor.template_pix:
-            QMessageBox.warning(self, "Ошибка", "Сначала выберите файл для раздатки.")
-            return
-
-        self.printer = QPrinter()
-        self._setup_printer(self.printer)
-        dialog = QPrintDialog(self.printer, self)
-        if dialog.exec() == QPrintDialog.DialogCode.Accepted:
-            self.btn_print_all.setText("Печать...")
-            QApplication.processEvents()
-            self._do_print(self.printer, is_test=False)
-            self.btn_print_all.setText("🖨  Распечатать всё")
-
-    def _do_print(self, printer, is_test):
-        import tempfile
-        import fitz
-        from datetime import datetime
-        
-        log_path = os.path.join(os.path.expanduser("~"), "Desktop", "kopirka_print_log.txt")
-        def write_log(msg):
-            try:
-                with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(f"[{datetime.now()}] {msg}\n")
-            except:
-                pass
-                
-        write_log("--- НАЧАЛО ПЕЧАТИ ---")
-        self._setup_printer(printer)
-        write_log(f"Ориентация принтера: {printer.pageLayout().orientation().name}, формат: {printer.pageLayout().pageSize().name()}")
-
-        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
-        os.close(tmp_fd)
-        
-        hide_header = self._get_hide_header()
-        students = self._get_students_for_print()
-
-        if is_test:
-            students = students[:self.copies_per_page]
-            if not students:
-                students = [""] * self.copies_per_page
-            
-        write_log("Генерация PDF...")
-        success, msg = self.pdf_processor.generate_pdf(
-            self.copies_per_page, students, tmp_path, hide_header
-        )
-        
-        if success:
-            try:
-                write_log("Открытие PDF через fitz...")
-                doc = fitz.open(tmp_path)
-                
-                write_log("Создание QPainter...")
-                painter = QPainter()
-                write_log(f"painter.begin()... (Printer name: {printer.printerName()})")
-                
-                if not painter.begin(printer):
-                    write_log("Ошибка: painter.begin(printer) вернул False!")
-                    raise RuntimeError("Не удалось инициализировать QPainter для выбранного принтера.")
-                
-                write_log("painter.begin() успешен!")
-                
-                for i in range(len(doc)):
-                    write_log(f"Обработка страницы {i+1}...")
-                    if i > 0:
-                        write_log(f"printer.newPage() для страницы {i+1}...")
-                        printer.newPage()
-                        
-                    page = doc[i]
-                    write_log("get_pixmap(dpi=200)...")
-                    pix = page.get_pixmap(dpi=200)
-                    
-                    write_log("QImage.fromData...")
-                    img = QImage.fromData(pix.tobytes("png"))
-                    
-                    if img.isNull():
-                        write_log("Ошибка: img.isNull()!")
-                        raise RuntimeError(f"Ошибка формирования картинки для страницы {i+1}.")
-                    
-                    write_log("printer.pageRect...")
-                    rect = printer.pageRect(QPrinter.Unit.DevicePixel)
-                    
-                    from PyQt6.QtCore import QRectF
-                    write_log("Вычисление пропорций для принтера...")
-                    img_size = img.size()
-                    w_ratio = rect.width() / img_size.width()
-                    h_ratio = rect.height() / img_size.height()
-                    scale = min(w_ratio, h_ratio)
-                    
-                    new_w = img_size.width() * scale
-                    new_h = img_size.height() * scale
-                    
-                    x = rect.x() + (rect.width() - new_w) / 2.0
-                    y = rect.y() + (rect.height() - new_h) / 2.0
-                    
-                    target_rect = QRectF(x, y, new_w, new_h)
-                    write_log(f"painter.drawImage(target_rect={target_rect})...")
-                    painter.drawImage(target_rect, img)
-                    write_log(f"Страница {i+1} отрисована!")
-                
-                write_log("painter.end()...")
-                painter.end()
-                
-                write_log("doc.close()...")
-                doc.close()
-                QMessageBox.information(self, "Успех", "Документ успешно отправлен на печать!")
-            except Exception as e:
-                import traceback
-                error_trace = traceback.format_exc()
-                write_log(f"PYTHON EXCEPTION:\n{error_trace}")
-                QMessageBox.critical(self, "Ошибка", f"Ошибка при печати:\n{e}\n\nЛог сохранен на рабочем столе")
-        else:
-            write_log(f"generate_pdf вернул ошибку: {msg}")
-            QMessageBox.critical(self, "Ошибка", msg)
-            
-        try:
-            os.remove(tmp_path)
-        except:
-            pass
-        write_log("--- КОНЕЦ ПЕЧАТИ ---")
-
-    def save_pdf(self):
-        if not self.pdf_processor.template_pix:
-            QMessageBox.warning(self, "Внимание", "Сначала загрузите файл раздатки.")
-            return
-
-        students = self._get_students_for_print()
-
-        filepath, _ = QFileDialog.getSaveFileName(
-            self,
-            "Сохранить PDF как",
-            "",
-            "PDF files (*.pdf)"
-        )
-
-        if filepath:
-            self.btn_save.setEnabled(False)
-            self.btn_save.setText("Сохранение...")
-            QApplication.processEvents()
-
-            hide_header = self._get_hide_header()
-            success, msg = self.pdf_processor.generate_pdf(
-                self.copies_per_page, students, filepath, hide_header
-            )
-
-            self.btn_save.setEnabled(True)
-            self.btn_save.setText("🖨  Сохранить PDF для печати")
-
-            if success:
-                QMessageBox.information(self, "Успех", msg)
-            else:
-                QMessageBox.critical(self, "Ошибка", msg)
-
-    def show_update_available(self, version, url):
-        self.update_url = url
-        self.btn_update.setText(f"⬆️ Обновить до v{version}")
-        self.btn_update.show()
-
-    def _on_update_clicked(self):
-        import webbrowser
-        webbrowser.open(self.update_url)
