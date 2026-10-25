@@ -37,6 +37,7 @@ jobs:
         pyinstaller --noconfirm --onedir --windowed --name Kopirka `
           --add-data "assets;assets" `
           --add-data "updater.py;." `
+          --collect-data pymupdf `
           --icon "assets/icon.ico" `
           main.py
 
@@ -45,6 +46,7 @@ jobs:
         pyinstaller --noconfirm --onefile --windowed --name KopirkaPortable `
           --add-data "assets;assets" `
           --add-data "updater.py;." `
+          --collect-data pymupdf `
           --icon "assets/icon.ico" `
           main.py
 
