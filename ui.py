@@ -23,12 +23,15 @@ class RosterEditDialog(QDialog):
     def __init__(self, parent, current_students):
         super().__init__(parent)
         self.setWindowTitle("Редактирование списка класса")
-        self.setMinimumSize(400, 500)
+        self.setMinimumSize(420, 520)
         self.setStyleSheet(parent.styleSheet())
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(12)
 
         info_label = QLabel("Вставьте список учеников (каждое имя с новой строки):")
+        info_label.setObjectName("DialogHeader")
         layout.addWidget(info_label)
 
         self.text_edit = QTextEdit()
@@ -69,6 +72,7 @@ class MainWindow(QMainWindow):
         self.copies_per_page = 4
         # Режим: "roster" = по списку, "blank" = без шапки
         self.print_mode = "roster"
+        self.dark_mode = False
 
         self.setup_ui()
         self.apply_stylesheet()
@@ -93,11 +97,13 @@ class MainWindow(QMainWindow):
         # Заголовок
         title_layout = QHBoxLayout()
         title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(8)
         self.title_label = QLabel("✂ Копирка")
         self.title_label.setObjectName("TitleLabel")
         title_layout.addWidget(self.title_label)
 
         info_label = QLabel("ℹ️")
+        info_label.setObjectName("InfoLabel")
         info_label.setCursor(Qt.CursorShape.PointingHandCursor)
         info_label.setToolTip(
             "<div style='white-space: pre-wrap; width: 400px; font-size: 13px;'>"
@@ -115,17 +121,21 @@ class MainWindow(QMainWindow):
             "чужой интеллектуальной собственности."
             "</div>"
         )
-        info_label.setStyleSheet("padding-top: 5px; font-size: 16px;")
         title_layout.addWidget(info_label)
         title_layout.addStretch()
+
+        # Кнопка переключения темы (Светлая / Темная MD3)
+        self.btn_theme = QPushButton("🌙")
+        self.btn_theme.setObjectName("ThemeBtn")
+        self.btn_theme.setFixedSize(34, 34)
+        self.btn_theme.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_theme.setToolTip("Переключить тему (Светлая / Тёмная Material Design 3)")
+        self.btn_theme.clicked.connect(self.toggle_theme)
+        title_layout.addWidget(self.btn_theme)
 
         # Кнопка обновления (скрыта по умолчанию)
         self.btn_update = QPushButton("⬆️")
         self.btn_update.setObjectName("UpdateBtn")
-        self.btn_update.setStyleSheet(
-            "background-color: #22c55e; color: white; border-radius: 12px; "
-            "padding: 4px 10px; font-weight: bold; border: none;"
-        )
         self.btn_update.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_update.hide()
         self.btn_update.clicked.connect(self._on_update_clicked)
@@ -140,17 +150,18 @@ class MainWindow(QMainWindow):
 
         # Контейнер со списком вариантов
         self.variants_container = QVBoxLayout()
-        self.variants_container.setSpacing(4)
+        self.variants_container.setSpacing(6)
         self.variant_rows = []  # list of QHBoxLayout rows
         self.left_layout.addLayout(self.variants_container)
 
         self.btn_add_variant = QPushButton("＋  Добавить вариант")
-        self.btn_add_variant.setObjectName("SecondaryButton")
+        self.btn_add_variant.setObjectName("TonalButton")
         self.btn_add_variant.clicked.connect(self.add_variant)
         self.left_layout.addWidget(self.btn_add_variant)
 
         # Загрузка файла (основной вариант 1)
         self.btn_load_file = QPushButton("📂  Добавить файл (PDF / JPG / PNG / Word)")
+        self.btn_load_file.setObjectName("TonalButton")
         self.btn_load_file.clicked.connect(self.load_template_file)
         self.left_layout.addWidget(self.btn_load_file)
 
@@ -168,9 +179,10 @@ class MainWindow(QMainWindow):
         self.left_layout.addWidget(mode_label)
 
         mode_frame = QFrame()
+        mode_frame.setObjectName("SegmentedFrame")
         mode_layout = QHBoxLayout(mode_frame)
         mode_layout.setContentsMargins(0, 0, 0, 0)
-        mode_layout.setSpacing(6)
+        mode_layout.setSpacing(4)
 
         self.rb_roster = QRadioButton("По списку класса")
         self.rb_roster.setChecked(True)
@@ -192,7 +204,7 @@ class MainWindow(QMainWindow):
         roster_page = QWidget()
         roster_layout = QVBoxLayout(roster_page)
         roster_layout.setContentsMargins(0, 0, 0, 0)
-        roster_layout.setSpacing(6)
+        roster_layout.setSpacing(8)
 
         self.btn_edit_roster = QPushButton("✏  Изменить список класса")
         self.btn_edit_roster.setObjectName("SecondaryButton")
@@ -205,10 +217,12 @@ class MainWindow(QMainWindow):
         sel_layout.setSpacing(6)
 
         self.btn_sel_all = QPushButton("Выбрать всех")
+        self.btn_sel_all.setObjectName("SmallTonalButton")
         self.btn_sel_all.clicked.connect(lambda: self.toggle_all(True))
         sel_layout.addWidget(self.btn_sel_all)
 
         self.btn_desel_all = QPushButton("Снять выбор")
+        self.btn_desel_all.setObjectName("SmallOutlinedButton")
         self.btn_desel_all.clicked.connect(lambda: self.toggle_all(False))
         sel_layout.addWidget(self.btn_desel_all)
         roster_layout.addWidget(sel_frame)
@@ -358,14 +372,14 @@ class MainWindow(QMainWindow):
 
             # Кнопка изменить файл
             btn_change = QPushButton("📂 Изменить файл")
-            btn_change.setObjectName("SecondaryButton")
+            btn_change.setObjectName("SmallOutlinedButton")
             btn_change.clicked.connect(lambda checked, idx=i: self._change_variant_file(idx))
             row_layout.addWidget(btn_change, stretch=1)
 
             # Кнопка удалить (только если вариантов > 1)
             if count > 1:
                 btn_del = QPushButton("✕")
-                btn_del.setFixedWidth(28)
+                btn_del.setFixedSize(28, 28)
                 btn_del.setToolTip(f"Удалить вариант {i + 1}")
                 btn_del.setObjectName("DeleteBtn")
                 btn_del.clicked.connect(lambda checked, idx=i: self._remove_variant(idx))
@@ -589,7 +603,9 @@ class MainWindow(QMainWindow):
 
         filename = os.path.basename(filepath)
         self.file_status_label.setText(f"📄 {filename}")
-        self.file_status_label.setStyleSheet("color: #10B981;")
+        self.file_status_label.setProperty("loaded", True)
+        self.file_status_label.style().unpolish(self.file_status_label)
+        self.file_status_label.style().polish(self.file_status_label)
         self._rebuild_variant_rows()
         self.update_preview()
 
@@ -618,7 +634,9 @@ class MainWindow(QMainWindow):
 
         filename = os.path.basename(filepath)
         self.file_status_label.setText(f"📄 {filename}")
-        self.file_status_label.setStyleSheet("color: #10B981;")
+        self.file_status_label.setProperty("loaded", True)
+        self.file_status_label.style().unpolish(self.file_status_label)
+        self.file_status_label.style().polish(self.file_status_label)
         self._rebuild_variant_rows()
         self.update_preview()
 
@@ -955,168 +973,519 @@ class MainWindow(QMainWindow):
         import webbrowser
         webbrowser.open(self.update_url)
 
+    def toggle_theme(self):
+        self.dark_mode = not self.dark_mode
+        self.btn_theme.setText("☀️" if self.dark_mode else "🌙")
+        self.apply_stylesheet()
+
     # ─────────────────────────────────────────────────────────────────────────
-    # Стили
+    # Стили Material Design 3 (Material You)
     # ─────────────────────────────────────────────────────────────────────────
 
     def apply_stylesheet(self):
-        self.setStyleSheet("""
-            QMainWindow, QDialog {
-                background-color: #F3F4F6;
-            }
-            #LeftPanel {
-                background-color: #FFFFFF;
-                border-right: 1px solid #E5E7EB;
-            }
-            #RightPanel {
-                background-color: #F0F4FF;
-            }
-            #TitleLabel {
-                font-size: 22px;
-                font-weight: bold;
-                color: #1E3A8A;
-                margin-bottom: 4px;
-            }
-            #SectionLabel {
-                font-size: 12px;
-                font-weight: bold;
-                color: #6B7280;
-                text-transform: uppercase;
-                letter-spacing: 1px;
-            }
-            QLabel {
-                font-size: 13px;
-                color: #374151;
-            }
-            #StatusLabel {
-                color: #6B7280;
-                font-style: italic;
-                font-size: 12px;
-            }
-            QPushButton {
-                background-color: #F3F4F6;
-                border: 1px solid #D1D5DB;
-                border-radius: 6px;
-                padding: 8px 12px;
-                color: #374151;
-                font-weight: 500;
-                font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #E5E7EB;
-            }
-            #SecondaryButton {
-                background-color: transparent;
-                border: 1px dashed #9CA3AF;
-            }
-            #SecondaryButton:hover {
-                background-color: #F3F4F6;
-            }
-            #PrimaryButton {
-                background-color: #2563EB;
-                color: white;
-                border: none;
-                font-size: 14px;
-                font-weight: bold;
-                border-radius: 8px;
-            }
-            #PrimaryButton:hover {
-                background-color: #1D4ED8;
-            }
-            #DeleteBtn {
-                background-color: transparent;
-                border: 1px solid #FCA5A5;
-                color: #EF4444;
-                border-radius: 4px;
-                padding: 2px;
-                font-weight: bold;
-            }
-            #DeleteBtn:hover {
-                background-color: #FEE2E2;
-            }
-            #VariantRow {
-                background-color: #F9FAFB;
-                border: 1px solid #E5E7EB;
-                border-radius: 6px;
-            }
-            QScrollArea, QTextEdit {
-                border: 1px solid #E5E7EB;
-                border-radius: 6px;
-                background-color: #FFFFFF;
-            }
-            #ScrollWidget {
-                background-color: #FFFFFF;
-            }
-            QTextEdit {
-                padding: 8px;
-                font-size: 13px;
-                color: #111827;
-            }
-            QCheckBox {
-                font-size: 13px;
-                color: #374151;
-                padding: 3px 0;
-            }
-            QCheckBox::indicator {
-                width: 16px;
-                height: 16px;
-                border-radius: 4px;
-                border: 1px solid #D1D5DB;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #2563EB;
-                border-color: #2563EB;
-            }
-            QRadioButton {
-                font-size: 13px;
-                color: #374151;
-                padding: 6px 8px;
-                border: 1px solid #D1D5DB;
-                border-radius: 6px;
-            }
-            QRadioButton:checked {
-                background-color: #EFF6FF;
-                border-color: #2563EB;
-                color: #1D4ED8;
-                font-weight: bold;
-            }
-            QSpinBox, QComboBox {
-                border: 1px solid #D1D5DB;
-                border-radius: 6px;
-                padding: 6px 8px;
-                font-size: 13px;
-                background: white;
-            }
-            QComboBox::drop-down {
-                border: none;
-            }
-            #StatsFrame {
-                background-color: #F0F9FF;
-                border: 1px solid #BAE6FD;
-                border-radius: 6px;
-            }
-            #Separator {
-                color: #E5E7EB;
-                background: #E5E7EB;
-                max-height: 1px;
-            }
-            #PreviewLabel {
-                background-color: #FFFFFF;
-                border: 1px solid #D1D5DB;
-                border-radius: 4px;
-                color: #9CA3AF;
-            }
-            QScrollBar:vertical {
-                border: none;
-                background: #F3F4F6;
-                width: 8px;
-                margin: 0;
-            }
-            QScrollBar::handle:vertical {
-                background: #D1D5DB;
-                border-radius: 4px;
-                min-height: 20px;
-            }
-        """)
+        self.setStyleSheet(get_md3_stylesheet(self.dark_mode))
+
+
+def get_md3_tokens(dark_mode: bool = False):
+    """
+    Тональные палитры Material Design 3 (MD3).
+    Базовый цвет (Seed Color): #0B57D0 (Google Material You Vibrant Blue)
+    """
+    if dark_mode:
+        return {
+            "primary": "#A8C7FA",
+            "on_primary": "#062E6F",
+            "primary_container": "#0842A0",
+            "on_primary_container": "#D3E3FD",
+            "primary_hover": "#BDD5FB",
+            "primary_pressed": "#8EB5F8",
+            "secondary": "#AFC6E3",
+            "on_secondary": "#193148",
+            "secondary_container": "#2A415A",
+            "on_secondary_container": "#D7E3F8",
+            "tertiary": "#D7BDE3",
+            "on_tertiary": "#3C2947",
+            "tertiary_container": "#543F5F",
+            "on_tertiary_container": "#F3DAFF",
+            "surface": "#111318",
+            "surface_dim": "#111318",
+            "surface_container_lowest": "#0C0E13",
+            "surface_container_low": "#191C20",
+            "surface_container": "#1D2024",
+            "surface_container_high": "#282A2F",
+            "surface_container_highest": "#33353A",
+            "on_surface": "#E2E2E9",
+            "on_surface_variant": "#C4C7D0",
+            "outline": "#8E9199",
+            "outline_variant": "#44474E",
+            "error": "#FFB4AB",
+            "error_container": "#93000A",
+            "on_error": "#690005",
+            "on_error_container": "#FFDAD6",
+            "success": "#6DD58C",
+            "state_hover_surface": "rgba(255, 255, 255, 0.06)",
+            "state_pressed_surface": "rgba(255, 255, 255, 0.12)",
+            "state_hover_primary": "#364F6D",
+            "state_pressed_primary": "#456182",
+        }
+    else:
+        return {
+            "primary": "#0B57D0",
+            "on_primary": "#FFFFFF",
+            "primary_container": "#D3E3FD",
+            "on_primary_container": "#041E49",
+            "primary_hover": "#0842A0",
+            "primary_pressed": "#042B6A",
+            "secondary": "#475D78",
+            "on_secondary": "#FFFFFF",
+            "secondary_container": "#D7E3F8",
+            "on_secondary_container": "#041C35",
+            "tertiary": "#6C5778",
+            "on_tertiary": "#FFFFFF",
+            "tertiary_container": "#F3DAFF",
+            "on_tertiary_container": "#261432",
+            "surface": "#F8F9FA",
+            "surface_dim": "#D9DFE8",
+            "surface_container_lowest": "#FFFFFF",
+            "surface_container_low": "#F0F4F9",
+            "surface_container": "#E9EEF6",
+            "surface_container_high": "#E1E6EC",
+            "surface_container_highest": "#D9DFE8",
+            "on_surface": "#1A1C1E",
+            "on_surface_variant": "#44474E",
+            "outline": "#74777F",
+            "outline_variant": "#C4C7D0",
+            "error": "#BA1A1A",
+            "error_container": "#FFDAD6",
+            "on_error": "#FFFFFF",
+            "on_error_container": "#410002",
+            "success": "#146C2E",
+            "state_hover_surface": "rgba(0, 0, 0, 0.04)",
+            "state_pressed_surface": "rgba(0, 0, 0, 0.08)",
+            "state_hover_primary": "#C5D8F6",
+            "state_pressed_primary": "#B3CBF2",
+        }
+
+
+def get_md3_stylesheet(dark_mode: bool = False) -> str:
+    p = get_md3_tokens(dark_mode)
+    return f"""
+        /* ── Base Window & Dialogs ── */
+        QMainWindow, QDialog {{
+            background-color: {p['surface_container_low']};
+            color: {p['on_surface']};
+            font-family: "Roboto", "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+        }}
+
+        /* ── Left Panel (Tonal Elevation Surface) ── */
+        #LeftPanel {{
+            background-color: {p['surface_container_low']};
+            border-right: 1px solid {p['outline_variant']};
+        }}
+
+        /* ── Right Panel (Canvas Area) ── */
+        #RightPanel {{
+            background-color: {p['surface_container_lowest']};
+        }}
+
+        /* ── Typography Scale ── */
+        #TitleLabel {{
+            font-size: 22px;
+            font-weight: 700;
+            color: {p['on_surface']};
+            letter-spacing: -0.4px;
+            margin-bottom: 2px;
+        }}
+
+        #SectionLabel {{
+            font-size: 11px;
+            font-weight: 700;
+            color: {p['primary']};
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            margin-top: 4px;
+            margin-bottom: 2px;
+        }}
+
+        QLabel {{
+            font-size: 13px;
+            color: {p['on_surface']};
+        }}
+
+        #InfoLabel {{
+            font-size: 16px;
+            color: {p['on_surface_variant']};
+            padding: 2px 4px;
+        }}
+
+        #StatusLabel {{
+            color: {p['on_surface_variant']};
+            font-style: italic;
+            font-size: 12px;
+            padding: 2px 0px;
+        }}
+
+        #StatusLabel[loaded="true"] {{
+            color: {p['success']};
+            font-style: normal;
+            font-weight: 600;
+        }}
+
+        #DialogHeader {{
+            font-size: 14px;
+            font-weight: 600;
+            color: {p['on_surface']};
+            margin-bottom: 4px;
+        }}
+
+        /* ── MD3 Buttons ── */
+
+        /* Standard Default Button (Tonal / Outlined Pill) */
+        QPushButton {{
+            background-color: {p['surface_container_high']};
+            border: 1px solid {p['outline_variant']};
+            border-radius: 18px;
+            padding: 7px 16px;
+            color: {p['on_surface']};
+            font-weight: 500;
+            font-size: 13px;
+            min-height: 22px;
+        }}
+        QPushButton:hover {{
+            background-color: {p['surface_container_highest']};
+            border-color: {p['outline']};
+        }}
+        QPushButton:pressed {{
+            background-color: {p['outline_variant']};
+        }}
+        QPushButton:disabled {{
+            background-color: {p['surface_container']};
+            color: {p['outline']};
+            border-color: {p['surface_container_high']};
+        }}
+
+        /* Primary Filled Button (Pill, High Emphasis) */
+        #PrimaryButton {{
+            background-color: {p['primary']};
+            color: {p['on_primary']};
+            border: none;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+            border-radius: 22px;
+            min-height: 44px;
+            padding: 8px 24px;
+        }}
+        #PrimaryButton:hover {{
+            background-color: {p['primary_hover']};
+        }}
+        #PrimaryButton:pressed {{
+            background-color: {p['primary_pressed']};
+        }}
+        #PrimaryButton:disabled {{
+            background-color: {p['outline_variant']};
+            color: {p['surface_container_lowest']};
+        }}
+
+        /* Secondary Outlined Button (Pill, Medium Emphasis) */
+        #SecondaryButton {{
+            background-color: transparent;
+            border: 1px solid {p['outline']};
+            color: {p['primary']};
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+            min-height: 38px;
+            padding: 6px 18px;
+        }}
+        #SecondaryButton:hover {{
+            background-color: {p['primary_container']};
+            border-color: {p['primary']};
+            color: {p['on_primary_container']};
+        }}
+        #SecondaryButton:pressed {{
+            background-color: {p['secondary_container']};
+        }}
+        #SecondaryButton:disabled {{
+            border-color: {p['outline_variant']};
+            color: {p['outline']};
+        }}
+
+        /* Tonal Button (Filled Secondary Container, Pill) */
+        #TonalButton {{
+            background-color: {p['secondary_container']};
+            color: {p['on_secondary_container']};
+            border: none;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            min-height: 38px;
+            padding: 6px 18px;
+        }}
+        #TonalButton:hover {{
+            background-color: {p['state_hover_primary']};
+        }}
+        #TonalButton:pressed {{
+            background-color: {p['state_pressed_primary']};
+        }}
+
+        /* Small Action Buttons (Select All / Deselect All) */
+        #SmallTonalButton {{
+            background-color: {p['surface_container_high']};
+            color: {p['on_surface']};
+            border: 1px solid {p['outline_variant']};
+            border-radius: 16px;
+            padding: 5px 12px;
+            font-size: 12px;
+            font-weight: 500;
+            min-height: 28px;
+        }}
+        #SmallTonalButton:hover {{
+            background-color: {p['surface_container_highest']};
+            border-color: {p['outline']};
+        }}
+
+        #SmallOutlinedButton {{
+            background-color: transparent;
+            color: {p['primary']};
+            border: 1px solid {p['outline_variant']};
+            border-radius: 16px;
+            padding: 5px 12px;
+            font-size: 12px;
+            font-weight: 500;
+            min-height: 28px;
+        }}
+        #SmallOutlinedButton:hover {{
+            background-color: {p['primary_container']};
+            border-color: {p['primary']};
+            color: {p['on_primary_container']};
+        }}
+
+        /* Delete Icon Button (MD3 Error Tonal Squircle) */
+        #DeleteBtn {{
+            background-color: {p['error_container']};
+            color: {p['on_error_container']};
+            border: none;
+            border-radius: 14px;
+            padding: 0px;
+            font-weight: bold;
+            font-size: 12px;
+        }}
+        #DeleteBtn:hover {{
+            background-color: {p['error']};
+            color: {p['on_error']};
+        }}
+
+        /* Update Badge Button */
+        #UpdateBtn {{
+            background-color: {p['success']};
+            color: #FFFFFF;
+            border: none;
+            border-radius: 14px;
+            padding: 4px 10px;
+            font-weight: 600;
+            font-size: 12px;
+        }}
+        #UpdateBtn:hover {{
+            opacity: 0.9;
+        }}
+
+        /* Theme Toggle Icon Button */
+        #ThemeBtn {{
+            background-color: {p['surface_container_high']};
+            color: {p['on_surface']};
+            border: 1px solid {p['outline_variant']};
+            border-radius: 17px;
+            padding: 2px;
+            font-size: 15px;
+        }}
+        #ThemeBtn:hover {{
+            background-color: {p['surface_container_highest']};
+            border-color: {p['primary']};
+        }}
+
+        /* ── MD3 Cards & Containers ── */
+
+        /* Variant Row Card */
+        #VariantRow {{
+            background-color: {p['surface_container_lowest']};
+            border: 1px solid {p['outline_variant']};
+            border-radius: 14px;
+            padding: 4px 8px;
+        }}
+
+        /* Stats Container Card */
+        #StatsFrame {{
+            background-color: {p['secondary_container']};
+            border: 1px solid {p['outline_variant']};
+            border-radius: 16px;
+            padding: 8px 12px;
+        }}
+        #StatsFrame QLabel {{
+            color: {p['on_secondary_container']};
+            font-weight: 500;
+            font-size: 13px;
+        }}
+
+        /* Segmented Frame Container */
+        #SegmentedFrame {{
+            background-color: {p['surface_container_high']};
+            border-radius: 22px;
+            padding: 3px;
+        }}
+
+        /* Segmented Radio Buttons */
+        QRadioButton {{
+            font-size: 13px;
+            font-weight: 500;
+            color: {p['on_surface_variant']};
+            padding: 7px 16px;
+            border: none;
+            border-radius: 18px;
+            background: transparent;
+        }}
+        QRadioButton::indicator {{
+            width: 0px;
+            height: 0px;
+        }}
+        QRadioButton:hover {{
+            background-color: {p['state_hover_surface']};
+            color: {p['on_surface']};
+        }}
+        QRadioButton:checked {{
+            background-color: {p['surface_container_lowest']};
+            color: {p['primary']};
+            font-weight: 600;
+        }}
+
+        /* Scroll Area & Student List */
+        QScrollArea {{
+            border: 1px solid {p['outline_variant']};
+            border-radius: 14px;
+            background-color: {p['surface_container_lowest']};
+        }}
+        #ScrollWidget {{
+            background-color: {p['surface_container_lowest']};
+            border-radius: 14px;
+        }}
+
+        /* Text Editor (Dialog) */
+        QTextEdit {{
+            border: 1px solid {p['outline_variant']};
+            border-radius: 14px;
+            background-color: {p['surface_container_lowest']};
+            color: {p['on_surface']};
+            padding: 10px;
+            font-size: 13px;
+        }}
+        QTextEdit:focus {{
+            border: 2px solid {p['primary']};
+        }}
+
+        /* Checkboxes (MD3 Indicator) */
+        QCheckBox {{
+            font-size: 13px;
+            color: {p['on_surface']};
+            padding: 4px 0;
+            spacing: 8px;
+        }}
+        QCheckBox::indicator {{
+            width: 18px;
+            height: 18px;
+            border-radius: 5px;
+            border: 2px solid {p['outline']};
+            background-color: transparent;
+        }}
+        QCheckBox::indicator:hover {{
+            border-color: {p['primary']};
+            background-color: {p['state_hover_surface']};
+        }}
+        QCheckBox::indicator:checked {{
+            background-color: {p['primary']};
+            border-color: {p['primary']};
+        }}
+
+        /* Inputs (SpinBox & ComboBox) */
+        QSpinBox, QComboBox {{
+            border: 1px solid {p['outline_variant']};
+            border-radius: 12px;
+            padding: 6px 12px;
+            font-size: 13px;
+            background-color: {p['surface_container_lowest']};
+            color: {p['on_surface']};
+            min-height: 24px;
+        }}
+        QSpinBox:hover, QComboBox:hover {{
+            border-color: {p['outline']};
+        }}
+        QSpinBox:focus, QComboBox:focus {{
+            border: 2px solid {p['primary']};
+        }}
+        QComboBox::drop-down {{
+            border: none;
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            width: 20px;
+        }}
+        QComboBox QAbstractItemView {{
+            background-color: {p['surface_container_lowest']};
+            border: 1px solid {p['outline_variant']};
+            border-radius: 12px;
+            padding: 4px;
+            selection-background-color: {p['primary_container']};
+            selection-color: {p['on_primary_container']};
+            color: {p['on_surface']};
+        }}
+
+        /* Separator Line */
+        #Separator {{
+            background-color: {p['outline_variant']};
+            border: none;
+            min-height: 1px;
+            max-height: 1px;
+            margin: 4px 0;
+        }}
+
+        /* Preview Canvas (Right Panel) */
+        #PreviewLabel {{
+            background-color: {p['surface_container_lowest']};
+            border: 1px solid {p['outline_variant']};
+            border-radius: 16px;
+            color: {p['on_surface_variant']};
+        }}
+
+        /* MD3 Subtle Scrollbars */
+        QScrollBar:vertical {{
+            border: none;
+            background: transparent;
+            width: 8px;
+            margin: 4px 2px 4px 2px;
+        }}
+        QScrollBar::handle:vertical {{
+            background: {p['outline_variant']};
+            border-radius: 4px;
+            min-height: 30px;
+        }}
+        QScrollBar::handle:vertical:hover {{
+            background: {p['outline']};
+        }}
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+            height: 0px;
+        }}
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+            background: none;
+        }}
+
+        /* Tooltips */
+        QToolTip {{
+            background-color: {p['surface_container_highest']};
+            color: {p['on_surface']};
+            border: 1px solid {p['outline_variant']};
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 12px;
+        }}
+    """
+
 
 

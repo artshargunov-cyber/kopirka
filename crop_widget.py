@@ -46,16 +46,19 @@ class InteractiveCropWidget(QWidget):
         painter.fillRect(QRect(r.left(), cr.top(), cr.left() - r.left(), cr.height()), dark_color) # Left
         painter.fillRect(QRect(cr.right() + 1, cr.top(), r.right() - cr.right(), cr.height()), dark_color) # Right
 
-        # Рисуем границу рамки
-        pen = QPen(QColor(37, 99, 235)) # Синий цвет
+        # Рисуем границу рамки (Material Design 3 Primary)
+        pen = QPen(QColor(11, 87, 208)) # MD3 Primary Blue
         pen.setWidth(2)
         painter.setPen(pen)
         painter.drawRect(cr)
 
-        # Рисуем ручки (8 штук)
-        painter.setBrush(QColor(255, 255, 255)) # Белые квадратики
+        # Рисуем ручки (8 штук, скругленные маркеры MD3)
+        handle_pen = QPen(QColor(11, 87, 208))
+        handle_pen.setWidth(1)
+        painter.setPen(handle_pen)
+        painter.setBrush(QColor(255, 255, 255))
         for handle_rect, _ in self._get_handles():
-            painter.drawRect(handle_rect)
+            painter.drawRoundedRect(handle_rect, 2, 2)
 
     def _get_handles(self):
         """Возвращает список кортежей (QRect, Имя_ручки)"""
@@ -152,8 +155,11 @@ class ImageCropDialog(QDialog):
         self.setStyleSheet(parent.styleSheet())
         
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(14)
         
         self.info = QLabel("Изменяйте размер синей рамки, передвигайте её или нарисуйте новую.\\nНажмите 'Сохранить обрезку', чтобы применить.")
+        self.info.setObjectName("DialogHeader")
         layout.addWidget(self.info)
 
         # Scale pixmap to fit within 800x600 for UI purposes
@@ -169,7 +175,9 @@ class ImageCropDialog(QDialog):
         layout.addLayout(center_layout)
         
         btns = QHBoxLayout()
+        btns.setSpacing(10)
         self.btn_skip = QPushButton("Пропустить")
+        self.btn_skip.setObjectName("SecondaryButton")
         self.btn_skip.clicked.connect(self.reject)
         btns.addWidget(self.btn_skip)
         
